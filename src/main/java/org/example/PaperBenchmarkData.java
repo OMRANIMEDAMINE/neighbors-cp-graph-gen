@@ -24,6 +24,10 @@ public class PaperBenchmarkData {
             // =====================================================================
             // d = 2  —  2-regular graphs (disjoint unions of cycles)
             // =====================================================================
+            new TestCase("K4_2",
+                    new int[]{ 2, 2, 2, 2},
+                    "K_4(2): 2-regular on 4 vertices"),
+
             new TestCase("K5_2",
                     new int[]{2, 2, 2, 2, 2},
                     "K_5(2): 2-regular on 5 vertices"),
@@ -115,6 +119,10 @@ public class PaperBenchmarkData {
                     new int[]{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
                     "K_14(3): 3-regular on 14 vertices (timeout expected for some configs)"),
 
+            new TestCase("K16_3",
+                    new int[]{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
+                    "K_14(3): 3-regular on 16 vertices (timeout expected for some configs)"),
+
             // =====================================================================
             // d = 4  —  4-regular graphs
             // =====================================================================
@@ -152,6 +160,9 @@ public class PaperBenchmarkData {
             new TestCase("K14_4",
                     new int[]{4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4},
                     "K_14(4): 4-regular on 14 vertices"),
+            new TestCase("K15_4",
+                    new int[]{4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4 },
+                    "K_15(4): 4-regular on 15 vertices"),
 
             // =====================================================================
             // d = 5  —  5-regular graphs
@@ -175,6 +186,10 @@ public class PaperBenchmarkData {
             new TestCase("K14_5",
                     new int[]{5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5},
                     "K_14(5): 5-regular on 14 vertices"),
+
+            new TestCase("K16_5",
+                    new int[]{5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5},
+                    "K_16(5): 5-regular on 16 vertices"),
 
 
             // =====================================================================

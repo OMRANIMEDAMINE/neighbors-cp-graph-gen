@@ -5,34 +5,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 
-/**
- * Main entry point for the graph-generation experiments.
- *
- * <p>Paper: "RevLex Ordering and Upper Off-Diagonal Connectivity Constraints:
- * A Synergistic Approach for Connected Non-Isomorphic Graph Enumeration"
- *
- * <p>Produces a single unified comparison table with 5 columns:
- *
- * <pre>
- *   OptLex | OptRevLex | OptLex(P) | OptRevLex(P) | OptRevLex(D)
- * </pre>
- *
- * <p>Each cell reports two sub-rows per instance:
- * <pre>
- *   Row 1: solutions found  +  CPU time (seconds)
- *   Row 2: failures / branches / choice-points
- * </pre>
- *
- * <p>Column semantics:
- * <ul>
- *   <li>OptLex        : OptLex ordering (Codish 2018), all graphs</li>
- *   <li>OptRevLex     : OptRevLex ordering (this paper), all graphs</li>
- *   <li>OptLex(P)     : OptLex   + path-based connectivity</li>
- *   <li>OptRevLex(P)  : OptRevLex + path-based connectivity</li>
- *   <li>OptRevLex(D)  : OptRevLex + upper off-diagonal encoding
- *                       (Theorem 2, O(n)), connected graphs only</li>
- * </ul>
- */
+
 public class Main {
 
 
@@ -43,10 +16,15 @@ public class Main {
     /**
      * All 5 columns of the unified table.
      */
-    private static final String[] ALL_COLS = {
+   /* private static final String[] ALL_COLS = {
             "LexAdj", "OptLexAdj",
-            "LexNei", "OptLexNei", "OptLexNei"
+            "LexNei", "OptLexNei", "OptRevLexNei", "OptRevLexNeiCon"
+    };*/
+    private static final String[] ALL_COLS = {
+            "OptRevLexAdj",  "OptRevLexNei", "OptRevLexAdjCon", "OptRevLexNeiCon"
     };
+
+
 
     private static final int W_INST = 10;
     private static final int W_COL = 20;
@@ -75,20 +53,31 @@ public class Main {
 
         // Degree-family groups — mirror paper table row groupings
         String[][] groups = {
-                {"2-Regular Graphs  K_n(2)",
-                        "K5_2", "K6_2", "K7_2", "K8_2", "K9_2", "K10_2", "K11_2", "K12_2", "K13_2", "K14_2", "K15_2", "K16_2", "K17_2"},//, "K18_2", "K19_2", "K20_2"},
+              /*  {"3-Regular Graphs  K_n(3)  ",
+                        "K6_3",   "K8_3",  "K10_3",  "K12_3",},*/
+              /*  {"4-Regular Graphs  K_n(4)",
+                        "K14_4", "K15_4" },*/
 
-               /* {"3-Regular Graphs  K_n(3)  ",
-                        "K4_3", "K6_3", "K8_3"},//, "K10_3", "K12_3", "K14_3"},*/
-                /*{"4-Regular Graphs  K_n(4)",
-                        "K14_4"}, //"K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4", "K13_4", "K14_4"},*/
-              /*  {"5-Regular Graphs  K_n(5)",
-                         "K14_5" }, // "K6_5", "K8_5", "K10_5", "K12_5"},
-               /* {"6-Regular Graphs  K_n(6)",
+             /* {"5-Regular Graphs  K_n(5)",
+                      "K14_5", "K16_5"},*/
+
+
+             {"2-Regular Graphs  K_n(2)",
+                        "K4_2","K5_2", "K6_2", "K7_2", "K8_2", "K9_2", "K10_2", "K11_2", "K12_2", "K13_2",
+                     "K14_2", "K15_2", "K16_2"},// "K17_2", "K18_2" , "K19_2", "K20_2"},
+             {"3-Regular Graphs  K_n(3)  ",
+                   "K4_3", "K6_3", "K8_3","K10_3"},// "K12_3",  "K14_3"},
+             {"4-Regular Graphs  K_n(4)",
+                        "K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4"},// "K13_4",  "K14_4"}, //"K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4", "K13_4", "K14_4"},*/
+             {"5-Regular Graphs  K_n(5)",
+                      "K8_5", "K10_5"},// "K12_5"},  //,   "K14_5" },*/   // "K6_5", "K8_5", "K10_5", "K12_5"},
+            /* {"6-Regular Graphs  K_n(6)",
                         "K6_6", "K7_6", "K8_6", "K9_6", "K10_6", "K11_6", "K14_6"},
-                {"7-Regular Graphs  K_n(7)",
+             {"7-Regular Graphs  K_n(7)",
                         "K14_7", "K8_7", "K10_7", "K12_7", "K14_7"}*/
         };
+
+
 
         printColumnHeader();
         printHRule('=');
@@ -99,18 +88,30 @@ public class Main {
             for (int i = 1; i < group.length; i++) {
                 TestCase tc = lookup.get(group[i]);
                 if (tc == null) continue;
-                //Result rLexP = OpLexVsOpRevLex.testOptimizedLexCon(tc.degrees);
 
+               // Result rOptRevLex_nei_con =   CpModels.testOptRevLexNeiCon(tc.degrees);
+
+
+              //  Result rOptRevLex_nei_con =   CpModels.testOptRevLexAdjCon(tc.degrees);
                 // ---- Symmetry breaking (Adjacency Model) ----
-                Result rLex_adj =  CpModels.testLexAdj(tc.degrees);
-                Result rOptLex_adj =  CpModels.testOptLexAdj(tc.degrees);
+                //Result rLex_adj = null;// CpModels.testLexAdj(tc.degrees);
+               // Result rOptLex_adj =  rOptRevLex_nei_con  ;//   CpModels.testOptLexAdj(tc.degrees);
+                Result rOptRevLex_adj =     CpModels.testOptRevLexAdj(tc.degrees);
+                Result rOptRevLex_adj_con =  CpModels.testOptRevLexAdjCon(tc.degrees);
 
                 // ---- Symmetry breaking (Neighbors Model) ----
-                Result rLex_nei =  CpModels.testLexNei(tc.degrees);
-                Result rOptLex_nei =   CpModels.testOptLexNei(tc.degrees);
+                //Result rLex_nei =   null;//  CpModels.testLexNei(tc.degrees);
+               // Result rOptLex_nei =   CpModels.testOptLexNei(tc.degrees);
+
+                //System.out.println("testOptRevLexNei started ");
+                Result rOptRevLex_nei =     CpModels.testOptRevLexNei(tc.degrees);
+
+                //System.out.println("testOptRevLexNei ended ");
+
+                   Result rOptRevLex_nei_con =   CpModels.testOptRevLexNeiCon(tc.degrees);
 
                 printInstanceRows(tc.name,
-                        new Result[]{rLex_adj, rOptLex_adj, rLex_nei, rOptLex_nei});
+                        new Result[]{rOptRevLex_adj, rOptRevLex_nei, rOptRevLex_adj_con, rOptRevLex_nei_con});
                 printHRule('-');
             }
         }
@@ -135,11 +136,6 @@ public class Main {
         System.out.println("(>60000s) = time-limit exceeded        |   -- = not collected");
         System.out.println();
         System.out.println("  Columns:");
-        System.out.println("    OptLex        : OptLex ordering (Codish 2018), all graphs");
-        System.out.println("    OptRevLex     : OptRevLex ordering (this paper), all graphs");
-        System.out.println("    OptLex(P)     : OptLex   + path-based connectivity");
-        System.out.println("    OptRevLex(P)  : OptRevLex + path-based connectivity");
-        System.out.println("    OptRevLex(D)  : OptRevLex + upper off-diagonal encoding (Theorem 2, O(n))");
         System.out.println();
     }
 
@@ -222,8 +218,8 @@ public class Main {
     // =========================================================================
 
     private static String solTime(Result r) {
-        String t = (r.cpu >= 60000_000)
-                ? "(>60000s)"
+        String t = (r.cpu >= 600000_000)
+                ? "(>6000000s)"
                 : String.format("%.2fs", r.cpu / 1000.0);
         return String.format("%,d (%s)", r.count, t);
     }
