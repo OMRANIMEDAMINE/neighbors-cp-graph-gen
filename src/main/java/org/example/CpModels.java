@@ -83,7 +83,7 @@ public class CpModels {
         for (int i = 0; i < N; i++) {
 
             // 0 = "no neighbor" padding, packed at the FRONT
-            M[i] = cp.intVarArray(D, 0, N);          // was (D, 1, N)
+           M[i] = cp.intVarArray(D, 0, N);          // was (D, 1, N)
 
             // no self loop (0 never equals i+1, so this is unchanged)
             for (int j = 0; j < D; j++)
@@ -91,7 +91,7 @@ public class CpModels {
 
             // ordered neighborhood: leading zeros, then strictly increasing reals
             for (int j = 0; j < D - 1; j++)
-                cp.add(cp.or(                          // was a bare cp.lt(...)  cp.add(cp.lt(M[i][j], M[i][j + 1])); // REgular Graphs
+                cp.add(cp.or(                          // was a bare  cp.add(cp.lt(M[i][j], M[i][j + 1])); // REgular Graphs
                         cp.eq(M[i][j], 0),
                         cp.lt(M[i][j], M[i][j + 1])));
         }
