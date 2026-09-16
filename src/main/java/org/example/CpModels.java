@@ -57,8 +57,8 @@ public class CpModels {
 
         // 2. Degree regularity
         for (int i = 0; i < N; i++) {
-           //cp.addEq(cp.sum(M[i]), DEGREE[i]); //Regular Graphs
-            cp.addLe(cp.sum(M[i]), DEGREE[i]);//Bounded Graphs
+           cp.addEq(cp.sum(M[i]), DEGREE[i]); //Regular Graphs
+
 
         }
 
@@ -83,7 +83,7 @@ public class CpModels {
         for (int i = 0; i < N; i++) {
 
             // 0 = "no neighbor" padding, packed at the FRONT
-           M[i] = cp.intVarArray(D, 0, N);          // was (D, 1, N)
+           M[i] = cp.intVarArray(D, 1, N);
 
             // no self loop (0 never equals i+1, so this is unchanged)
             for (int j = 0; j < D; j++)
@@ -91,9 +91,8 @@ public class CpModels {
 
             // ordered neighborhood: leading zeros, then strictly increasing reals
             for (int j = 0; j < D - 1; j++)
-                cp.add(cp.or(                          // was a bare  cp.add(cp.lt(M[i][j], M[i][j + 1])); // REgular Graphs
-                        cp.eq(M[i][j], 0),
-                        cp.lt(M[i][j], M[i][j + 1])));
+                cp.add(cp.lt(M[i][j], M[i][j + 1])); // REgular Graphs
+
         }
 
         // undirected symmetry — unchanged (0 is never counted since u+1,v+1 >= 1)
@@ -107,6 +106,7 @@ public class CpModels {
 
         return M;
     }
+
     private static IloIntVar[][] buildBaseModelNei_used_with_regular_graphs(IloCP cp, int[] DEGREE)
             throws IloException {
 
@@ -430,7 +430,7 @@ public class CpModels {
         int N = DEGREE.length;
         int D = DEGREE[0];
         //con
-        // Upper off-diagonal (Theorem 2), O(n): last (largest) neighbor of i exceeds i's label
+        // Upper off-diagonal  O(n): last (largest) neighbor of i exceeds i's label
         for (int i = 0; i < N - 1; i++) {
             cp.add(cp.gt(M[i][D - 1], i + 1));
         }
