@@ -76,13 +76,13 @@ public class CpModels {
             throws IloException {
 
         int N = DEGREE.length;
-        int D = DEGREE[0];   // uniform upper bound (see note for per-vertex bounds)
+        int D = DEGREE[0];   // uniform  all vertices have the same degree (regular graph)
 
-        IloIntVar[][] M = new IloIntVar[N][];
+        IloIntVar[][] M = new IloIntVar[N][D];
 
         for (int i = 0; i < N; i++) {
 
-            // 0 = "no neighbor" padding, packed at the FRONT
+            // Problem variable (CP model) N * D
            M[i] = cp.intVarArray(D, 1, N);
 
             // no self loop (0 never equals i+1, so this is unchanged)
@@ -203,7 +203,7 @@ public class CpModels {
     }
 
 
-    /** Neighbors model — OptRevLex ordering (this paper), expression-based, no aux vars. */
+    /** Neighbors model — OptRevLex ordering on ALL pairs i < j, as in the paper. */
     private static void addOptRevLexNei(IloCP cp, IloIntVar[][] M, int[] DEGREE)
             throws IloException {
         int N = DEGREE.length;
@@ -214,13 +214,14 @@ public class CpModels {
 
         for (int i = 0; i < N - 1; i++) {
             for (int j = i + 1; j < N; j++) {
+                // N_i ⪯opt N_j : compare rows i and j, columns i and j excluded,
+                // right-most column most significant (hence reverse)
                 cp.add(cp.lexicographic(
                         reverse(arrayNew(C[i], i, j)),
                         reverse(arrayNew(C[j], i, j))));
             }
         }
     }
-
     // =========================================================================
     //  SOLUTION COLLECTION
     // =========================================================================
