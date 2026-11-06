@@ -1,5 +1,6 @@
 package org.example;
 
+import ilog.concert.IloConstraint;
 import ilog.concert.IloException;
 import ilog.concert.IloIntExpr;
 import ilog.concert.IloIntVar;
@@ -9,13 +10,13 @@ import java.util.Arrays;
 import java.util.function.Supplier;
 
 /**
- * CP Optimizer models that enumerate the d-regular graphs on n vertices.
+ * CP Optimizer models that enumerate all graphs on n vertices (any degrees).
  *
  * <p>Two encodings of the same graph are available:
  * <ul>
  *   <li>{@link Encoding#ADJACENCY}: an n×n 0/1 adjacency matrix.</li>
- *   <li>{@link Encoding#NEIGHBORS}: for each vertex, the sorted list of its d neighbors
- *       (vertex labels are 1-based).</li>
+ *   <li>{@link Encoding#NEIGHBORS}: for each vertex, the sorted list of its neighbors
+ *       (vertex labels are 1-based) in n-1 slots, left-padded with 0.</li>
  * </ul>
  *
  * <p>Both encodings use the OptRevLex symmetry-breaking constraints. The upper
@@ -25,10 +26,20 @@ public final class CpModels {
 
     public enum Encoding { ADJACENCY, NEIGHBORS }
 
+    /** Which connectivity constraints to add on top of OptRevLex. */
+    public enum Connectivity {
+        /** None: every graph is enumerated. */
+        NONE,
+        /** Upper off-diagonal: {@code addAdjacencyConnectivity} / {@code addNeighborsConnectivity}. */
+        UPPER_OFF_DIAGONAL,
+        /** Neighbors encoding only: {@code addNeighborsConnectivityLastValidSlot}. */
+        LAST_VALID_SLOT
+    }
+
     /**
      * Notified of every solution found. {@code values.get()} reads the solution:
-     * an n×n adjacency matrix for {@link Encoding#ADJACENCY}, n×d neighbor lists
-     * for {@link Encoding#NEIGHBORS}. A listener that doesn't need a solution can
+     * an n×n adjacency matrix for {@link Encoding#ADJACENCY}, n×(n-1) zero-padded
+     * neighbor lists for {@link Encoding#NEIGHBORS}. A listener that doesn't need a solution can
      * skip the call, so nothing is read.
      */
     @FunctionalInterface
@@ -43,30 +54,41 @@ public final class CpModels {
      * and search statistics.
      *
      * @param n         number of vertices
-     * @param d         degree of every vertex
      * @param encoding  graph encoding to use
-     * @param connected whether to add the upper off-diagonal connectivity constraints
-     * @param listener  notified of each solution, or {@code null}
+     * @param connectivity which connectivity constraints to add
+     * @param listener     notified of each solution, or {@code null}
      */
-    public static Result solve(int n, int d, Encoding encoding, boolean connected, SolutionListener listener) {
+    public static Result solve(int n, Encoding encoding, Connectivity connectivity, SolutionListener listener) {
+        IloCP cp = null;
         try {
-            IloCP cp = new IloCP();
+            cp = new IloCP();
             configureSolver(cp);
 
             // Note: constraint posting order affects CP Optimizer's search statistics.
             if (encoding == Encoding.ADJACENCY) {
-                IloIntVar[][] a = buildAdjacencyModel(cp, n, d);
+                IloIntVar[][] a = buildAdjacencyModel(cp, n);
                 addOptRevLex(cp, a);
-                if (connected) addAdjacencyConnectivity(cp, a);
+                switch (connectivity) {
+                    case NONE -> {}
+                    case UPPER_OFF_DIAGONAL -> addAdjacencyConnectivity(cp, a);
+                    case LAST_VALID_SLOT -> throw new IllegalArgumentException(
+                            "LAST_VALID_SLOT applies to the neighbors encoding only");
+                }
                 return enumerate(cp, a, listener);
             } else {
-                IloIntVar[][] nb = buildNeighborsModel(cp, n, d);
+                IloIntVar[][] nb = buildNeighborsModel(cp, n);
                 addOptRevLex(cp, adjacencyFromNeighbors(cp, nb));
-                if (connected) addNeighborsConnectivity(cp, nb);
+                switch (connectivity) {
+                    case NONE -> {}
+                    case UPPER_OFF_DIAGONAL -> addNeighborsConnectivity(cp, nb);
+                    case LAST_VALID_SLOT -> addNeighborsConnectivityLastValidSlot(cp, nb);
+                }
                 return enumerate(cp, nb, listener);
             }
         } catch (IloException e) {
             throw new RuntimeException(e);
+        } finally {
+            if (cp != null) cp.end();   // release the solver's native memory before the next run
         }
     }
 
@@ -83,18 +105,15 @@ public final class CpModels {
 
     /**
      * Adjacency encoding: {@code A[i][j] = 1} iff vertices i and j are adjacent.
-     * Posts: no self-loops, every row sums to d, and the matrix is symmetric.
+     * Posts: no self-loops and the matrix is symmetric. Degrees are free.
      */
-    private static IloIntVar[][] buildAdjacencyModel(IloCP cp, int n, int d) throws IloException {
+    private static IloIntVar[][] buildAdjacencyModel(IloCP cp, int n) throws IloException {
         IloIntVar[][] a = new IloIntVar[n][];
         for (int i = 0; i < n; i++) {
             a[i] = cp.intVarArray(n, 0, 1);
         }
         for (int i = 0; i < n; i++) {
             cp.add(cp.eq(a[i][i], 0));
-        }
-        for (int i = 0; i < n; i++) {
-            cp.addEq(cp.sum(a[i]), d);
         }
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
@@ -105,19 +124,23 @@ public final class CpModels {
     }
 
     /**
-     * Neighbors encoding: {@code N[i]} holds the d neighbors of vertex i+1
-     * (values in 1..n) in strictly increasing order.
+     * Neighbors encoding: {@code N[i]} has n-1 slots (the largest possible degree) holding
+     * the neighbors of vertex i+1 (values in 1..n), padded with 0 for unused slots.
+     * The padding comes first and the neighbors follow in strictly increasing order, e.g.
+     * {@code [0, 0, 2, 5]}, so the last slot is always the largest neighbor (0 if isolated).
      * Posts: no self-loops, sorted lists, and u ∈ N[v] ⇔ v ∈ N[u].
      */
-    private static IloIntVar[][] buildNeighborsModel(IloCP cp, int n, int d) throws IloException {
+    private static IloIntVar[][] buildNeighborsModel(IloCP cp, int n) throws IloException {
+        int slots = n - 1;
         IloIntVar[][] nb = new IloIntVar[n][];
         for (int i = 0; i < n; i++) {
-            nb[i] = cp.intVarArray(d, 1, n);
-            for (int k = 0; k < d; k++) {
+            nb[i] = cp.intVarArray(slots, 0, n);
+            for (int k = 0; k < slots; k++) {
                 cp.add(cp.neq(nb[i][k], i + 1));
             }
-            for (int k = 0; k < d - 1; k++) {
-                cp.add(cp.lt(nb[i][k], nb[i][k + 1]));
+            // A slot is padding (0) or smaller than the next one: zeros first, then increasing.
+            for (int k = 0; k < slots - 1; k++) {
+                cp.add(cp.or(cp.eq(nb[i][k], 0), cp.lt(nb[i][k], nb[i][k + 1])));
             }
         }
         for (int u = 0; u < n; u++) {
@@ -185,27 +208,67 @@ public final class CpModels {
         }
     }
 
+    /**
+     * Connectivity on the last valid slot: for every vertex i &lt; n-1, the row has at least
+     * one non-zero slot, and the last valid slot (the last non-zero slot, i.e. the one
+     * followed only by zeros, or the last slot) holds a label above i.
+     */
+    private static void addNeighborsConnectivityLastValidSlot(IloCP cp, IloIntVar[][] nb) throws IloException {
+        int n = nb.length;
+        int slots = nb[0].length;
+        for (int i = 0; i < n - 1; i++) {
+            cp.add(cp.gt(cp.sum(nb[i]), 0));   // at least one valid slot
+            for (int k = 0; k < slots; k++) {
+                IloConstraint isLastValid = (k == slots - 1)
+                        ? cp.gt(nb[i][k], 0)
+                        : cp.and(cp.gt(nb[i][k], 0), cp.eq(nb[i][k + 1], 0));
+                cp.add(cp.ifThen(isLastValid, cp.gt(nb[i][k], i + 1)));
+            }
+        }
+    }
+
     // =========================================================================
     //  SEARCH
     // =========================================================================
 
-    /** Runs the search to exhaustion, counting solutions and passing each one to {@code listener}. */
+    /**
+     * Runs the search to exhaustion, counting solutions and passing each one to {@code listener}.
+     *
+     * <p>The reported figures cover CP Optimizer's generation work only:
+     * <ul>
+     *   <li>time: summed over the solver calls ({@code startNewSearch}, every {@code next},
+     *       {@code endSearch}); the listener's work between calls is not counted;</li>
+     *   <li>memory: CP Optimizer's own peak memory, which lives outside the Java heap,
+     *       so graphs the listener keeps don't count towards it.</li>
+     * </ul>
+     */
     private static Result enumerate(IloCP cp, IloIntVar[][] vars, SolutionListener listener) throws IloException {
-        long start = System.currentTimeMillis();
-        cp.startNewSearch();
+        long cpNanos = 0;
         int count = 0;
-        while (cp.next()) {
+
+        long t = System.nanoTime();
+        cp.startNewSearch();
+        cpNanos += System.nanoTime() - t;
+
+        while (true) {
+            t = System.nanoTime();
+            boolean found = cp.next();
+            cpNanos += System.nanoTime() - t;
+            if (!found) break;
+
             count++;
             if (listener != null) {
                 listener.onSolution(() -> values(cp, vars));
             }
         }
+
+        t = System.nanoTime();
         cp.endSearch();
-        long elapsedMs = System.currentTimeMillis() - start;
+        cpNanos += System.nanoTime() - t;
 
         return new Result(
                 count,
-                elapsedMs,
+                cpNanos / 1_000_000,
                 cp.getInfo(IloCP.IntInfo.PeakMemoryUsage));
     }
 

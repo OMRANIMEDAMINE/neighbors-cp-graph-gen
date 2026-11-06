@@ -1,5 +1,6 @@
 package org.example;
 
+import org.example.CpModels.Connectivity;
 import org.example.CpModels.Encoding;
 import org.example.CpModels.SolutionListener;
 
@@ -11,14 +12,13 @@ import java.util.List;
 
 /**
  * Runs every benchmark instance under each model configuration and prints a
- * results table. Each instance takes two lines:
+ * results table. Each instance takes one line, with one cell per configuration:
  * <pre>
- *   line 1: solutions (time)
- *   line 2: peak memory used by the solver
+ *   solutions (time | peak memory used by the solver)
  * </pre>
  *
  * <p>Optionally, the graphs found are also saved, one file per instance and configuration
- * (e.g. {@code K8_3_OptRevLexAdj.txt}). Command-line options override the defaults below:
+ * (e.g. {@code N8_OptRevLexAdj.txt}). Command-line options override the defaults below:
  * <pre>
  *   --txt / --no-txt       save graphs as .txt (adjacency matrices or neighbor lists)
  *   --pdf / --no-pdf       draw graphs in a .pdf
@@ -28,19 +28,20 @@ import java.util.List;
  */
 public class Main {
 
-    /** One column of the results table: an encoding, with or without connectivity. */
-    private record Config(String label, Encoding encoding, boolean connected) {}
+    /** One column of the results table: an encoding and its connectivity constraints. */
+    private record Config(String label, Encoding encoding, Connectivity connectivity) {}
 
     private static final List<Config> CONFIGS = List.of(
-            new Config("OptRevLexAdj",    Encoding.ADJACENCY, false),
-            new Config("OptRevLexNei",    Encoding.NEIGHBORS, false),
-            new Config("OptRevLexAdjCon", Encoding.ADJACENCY, true),
-            new Config("OptRevLexNeiCon", Encoding.NEIGHBORS, true)
+            new Config("OptRevLexAdj",    Encoding.ADJACENCY, Connectivity.NONE),
+            new Config("OptRevLexNei",    Encoding.NEIGHBORS, Connectivity.NONE),
+            new Config("OptRevLexAdjCon", Encoding.ADJACENCY, Connectivity.UPPER_OFF_DIAGONAL),
+            new Config("OptRevLexNeiCon", Encoding.NEIGHBORS, Connectivity.UPPER_OFF_DIAGONAL),
+            new Config("OptRevLexNeiLastValidSlotCon", Encoding.NEIGHBORS, Connectivity.LAST_VALID_SLOT)
     );
 
     // ---- Output defaults (overridable from the command line) ----
-    private static final boolean SAVE_TXT = true;
-    private static final boolean SAVE_PDF = true;
+    private static final boolean SAVE_TXT = false;
+    private static final boolean SAVE_PDF = false;
     /** Output-only cap: the first LIMIT_GRAPHS graphs of each run are written, to bound memory. */
     private static final int LIMIT_GRAPHS = 10;
     private static final String OUTPUT_DIR = "results";
@@ -75,7 +76,9 @@ public class Main {
     }
 
     private static final int NAME_WIDTH = 10;
-    private static final int COL_WIDTH = 20;
+    /** Wide enough for every label, with a space on each side. */
+    private static final int COL_WIDTH = Math.max(32,
+            CONFIGS.stream().mapToInt(c -> c.label().length() + 2).max().orElse(0));
 
     public static void main(String[] args) {
         Output output = Output.fromArgs(args);
@@ -114,14 +117,14 @@ public class Main {
      */
     private static Result run(TestCase tc, Config c, Output output) {
         if (!output.enabled()) {
-            return CpModels.solve(tc.vertices(), tc.degree(), c.encoding(), c.connected(), null);
+            return CpModels.solve(tc.vertices(), c.encoding(), c.connectivity(), null);
         }
 
         List<int[][]> kept = new ArrayList<>();
         SolutionListener keepFirst = values -> {
             if (kept.size() < output.limitGraphs()) kept.add(values.get());
         };
-        Result r = CpModels.solve(tc.vertices(), tc.degree(), c.encoding(), c.connected(), keepFirst);
+        Result r = CpModels.solve(tc.vertices(), c.encoding(), c.connectivity(), keepFirst);
 
         String title = tc.name() + "_" + c.label();
         if (output.txt()) GraphFiles.writeTxt(output.dir(), title, tc, c.encoding(), r.count(), kept);
@@ -137,22 +140,21 @@ public class Main {
         int w = tableWidth();
         System.out.println();
         System.out.println("=".repeat(w));
-        System.out.println(center("d-Regular Graph Generation — Benchmark", w));
+        System.out.println(center("All Graphs on N Vertices — Benchmark", w));
         System.out.println(center("OptRevLex  ×  Adjacency / Neighbors  ×  Connectivity", w));
         System.out.println("=".repeat(w));
         System.out.println();
-        System.out.println("Row 1 = solutions (time)   |   Row 2 = peak memory");
+        System.out.println("Each cell = solutions (time | peak memory)");
         System.out.println();
     }
 
     private static void printHeader() {
         printRow("Instance", CONFIGS.stream().map(Config::label).toList());
-        printRow("", CONFIGS.stream().map(c -> "Sol(s) | memory").toList());
+        printRow("", CONFIGS.stream().map(c -> "Sol (s | memory)").toList());
     }
 
     private static void printInstance(String name, List<Result> results) {
-        printRow(name, results.stream().map(Main::solutionsAndTime).toList());
-        printRow("  memory", results.stream().map(Main::memory).toList());
+        printRow(name, results.stream().map(Main::cell).toList());
     }
 
     private static void printRow(String name, List<String> cells) {
@@ -185,8 +187,9 @@ public class Main {
     //  FORMATTING
     // =========================================================================
 
-    private static String solutionsAndTime(Result r) {
-        return String.format("%,d (%.2fs)", r.count(), r.timeMs() / 1000.0);
+    /** One result cell, e.g. "216 (0.41s | 2.6 MB)". */
+    private static String cell(Result r) {
+        return String.format("%,d (%.2fs | %s)", r.count(), r.timeMs() / 1000.0, memory(r));
     }
 
     /** Bytes as "512 KB", "12.3 MB" or "1.25 GB". */

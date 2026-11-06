@@ -1,10 +1,10 @@
 package org.example;
 
-/** A benchmark instance K_n(d): the d-regular graphs on n vertices. */
-public record TestCase(int vertices, int degree) {
+/** A benchmark instance G_n: all graphs on n vertices. */
+public record TestCase(int vertices) {
 
-    /** Short name, e.g. K_8(3) → {@code "K8_3"}. */
+    /** Short name, e.g. G_8 → {@code "N8"}. */
     public String name() {
-        return "K" + vertices + "_" + degree;
+        return "N" + vertices;
     }
 }

@@ -9,31 +9,30 @@ import java.util.List;
  * <p>"RevLex Ordering and Upper Off-Diagonal Connectivity Constraints:
  * A Synergistic Approach for Connected Non-Isomorphic Graph Enumeration"
  *
- * <p>All instances are d-regular graphs K_n(d). The benchmark is restricted to
- * d &lt; n/2: complementation maps K_n(d) one-to-one onto K_n(n−1−d).
- * For odd d, n must be even (n·d must be even).
+ * <p>Each instance is a vertex count N: all graphs on N vertices, whatever their degrees.
+ * For reference, the numbers of non-isomorphic graphs (connected ones in brackets) are
+ * N=4: 11 (6), 5: 34 (21), 6: 156 (112), 7: 1,044 (853), 8: 12,346 (11,117),
+ * 9: 274,668 (261,080), 10: 12,005,168 (11,716,571).
+ * OptRevLex is not complete symmetry breaking, so the counts found are somewhat higher.
  *
  * <p>Edit {@link #GROUPS} to choose which instances are run.
  */
 public final class PaperBenchmarkData {
 
-    /** A degree family, printed as one block of the results table. */
+    /** A block of the results table. */
     public record Group(String title, List<TestCase> instances) {}
 
     public static final List<Group> GROUPS = List.of(
-            //family(2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15),
-            //family(3, 4, 6, 8, 10, 12),
-            //family(4, 7, 8, 9, 10, 11, 12),
-            family(5, 8, 10)
+            allGraphs(6)   // the neighbors encoding takes ~2 min at N=7; N≥8 is much longer
     );
 
     private PaperBenchmarkData() {}
 
-    /** The d-regular instances for each given vertex count n. */
-    private static Group family(int degree, int... vertexCounts) {
+    /** The all-graphs instance for each given vertex count N. */
+    private static Group allGraphs(int... vertexCounts) {
         List<TestCase> instances = Arrays.stream(vertexCounts)
-                .mapToObj(n -> new TestCase(n, degree))
+                .mapToObj(TestCase::new)
                 .toList();
-        return new Group(degree + "-Regular Graphs  K_n(" + degree + ")", instances);
+        return new Group("All Graphs on N vertices", instances);
     }
 }
