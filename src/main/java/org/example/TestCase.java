@@ -1,19 +1,10 @@
 package org.example;
 
-public class TestCase {
-    String name;
-    int[] degrees;
-    String description;
+/** A benchmark instance K_n(d): the d-regular graphs on n vertices. */
+public record TestCase(int vertices, int degree) {
 
-    TestCase(String name, int[] degrees, String description) {
-        this.name = name;
-        this.degrees = degrees;
-        this.description = description;
+    /** Short name, e.g. K_8(3) → {@code "K8_3"}. */
+    public String name() {
+        return "K" + vertices + "_" + degree;
     }
-
-    TestCase(String name, int[] degrees) {
-        this(name, degrees, "");
-    }
-
-
 }

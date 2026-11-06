@@ -1,124 +1,132 @@
 package org.example;
 
-import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import org.example.CpModels.Encoding;
+import org.example.CpModels.SolutionListener;
 
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 
-
+/**
+ * Runs every benchmark instance under each model configuration and prints a
+ * results table. Each instance takes two lines:
+ * <pre>
+ *   line 1: solutions (time)
+ *   line 2: peak memory used by the solver
+ * </pre>
+ *
+ * <p>Optionally, the graphs found are also saved, one file per instance and configuration
+ * (e.g. {@code K8_3_OptRevLexAdj.txt}). Command-line options override the defaults below:
+ * <pre>
+ *   --txt / --no-txt       save graphs as .txt (adjacency matrices or neighbor lists)
+ *   --pdf / --no-pdf       draw graphs in a .pdf
+ *   --limit-graphs=N       write at most the first N graphs of each run
+ *   --out=DIR              parent output folder; each run writes to DIR/<date_time>/
+ * </pre>
+ */
 public class Main {
 
+    /** One column of the results table: an encoding, with or without connectivity. */
+    private record Config(String label, Encoding encoding, boolean connected) {}
 
-    // =========================================================================
-    //  TABLE LAYOUT
-    // =========================================================================
+    private static final List<Config> CONFIGS = List.of(
+            new Config("OptRevLexAdj",    Encoding.ADJACENCY, false),
+            new Config("OptRevLexNei",    Encoding.NEIGHBORS, false),
+            new Config("OptRevLexAdjCon", Encoding.ADJACENCY, true),
+            new Config("OptRevLexNeiCon", Encoding.NEIGHBORS, true)
+    );
 
-    /**
-     * All 5 columns of the unified table.
-     */
-   /* private static final String[] ALL_COLS = {
-            "LexAdj", "OptLexAdj",
-            "LexNei", "OptLexNei", "OptRevLexNei", "OptRevLexNeiCon"
-    };*/
-    private static final String[] ALL_COLS = {
-            "OptRevLexAdj",  "OptRevLexNei", "OptRevLexAdjCon", "OptRevLexNeiCon"
-    };
+    // ---- Output defaults (overridable from the command line) ----
+    private static final boolean SAVE_TXT = true;
+    private static final boolean SAVE_PDF = true;
+    /** Output-only cap: the first LIMIT_GRAPHS graphs of each run are written, to bound memory. */
+    private static final int LIMIT_GRAPHS = 10;
+    private static final String OUTPUT_DIR = "results";
 
+    /** What to save, where, and how many graphs per run at most. */
+    private record Output(boolean txt, boolean pdf, int limitGraphs, Path dir) {
 
-
-    private static final int W_INST = 10;
-    private static final int W_COL = 20;
-
-    // =========================================================================
-    //  ENTRY POINT
-    // =========================================================================
-
-    public static void main(String[] args) throws Exception {
-        runPaperExperiments();
-    }
-
-    // =========================================================================
-    //  EXPERIMENT RUNNER
-    // =========================================================================
-
-    public static void runPaperExperiments() throws IOException {
-
-        printBanner();
-
-        // Build instance lookup
-        Map<String, TestCase> lookup = new LinkedHashMap<>();
-        for (TestCase tc : PaperBenchmarkData.GRAPH_SAMPLES) {
-            lookup.put(tc.name, tc);
+        boolean enabled() {
+            return txt || pdf;
         }
 
-        // Degree-family groups — mirror paper table row groupings
-        String[][] groups = {
-              /*  {"3-Regular Graphs  K_n(3)  ",
-                        "K6_3",   "K8_3",  "K10_3",  "K12_3",},*/
-              /*  {"4-Regular Graphs  K_n(4)",
-                        "K14_4", "K15_4" },*/
+        static Output fromArgs(String[] args) {
+            boolean txt = SAVE_TXT, pdf = SAVE_PDF;
+            int limitGraphs = LIMIT_GRAPHS;
+            String dir = OUTPUT_DIR;
+            for (String arg : args) {
+                if (arg.equals("--txt")) txt = true;
+                else if (arg.equals("--no-txt")) txt = false;
+                else if (arg.equals("--pdf")) pdf = true;
+                else if (arg.equals("--no-pdf")) pdf = false;
+                else if (arg.startsWith("--limit-graphs=")) limitGraphs = Integer.parseInt(arg.substring(15));
+                else if (arg.startsWith("--out=")) dir = arg.substring(6);
+                else throw new IllegalArgumentException("Unknown option: " + arg);
+            }
+            return new Output(txt, pdf, limitGraphs, Path.of(dir).resolve(runFolderName()));
+        }
 
-             /* {"5-Regular Graphs  K_n(5)",
-                      "K14_5", "K16_5"},*/
+        /** Folder name for this run, from the start time, e.g. {@code 2026-11-06_14-30-05}. */
+        private static String runFolderName() {
+            return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        }
+    }
 
+    private static final int NAME_WIDTH = 10;
+    private static final int COL_WIDTH = 20;
 
-            /* {"2-Regular Graphs  K_n(2)",
-                        "K4_2","K5_2", "K6_2", "K7_2", "K8_2", "K9_2", "K10_2", "K11_2", "K12_2", "K13_2",
-                     "K14_2", "K15_2", "K16_2"},// "K17_2", "K18_2" , "K19_2", "K20_2"},*/
-            {"3-Regular Graphs  K_n(3)  ",
-               "K10_3", "K12_3",  "K14_3"},
-                // "K4_3", "K6_3", "K8_3","K10_3", "K12_3",  "K14_3"},
-             {"4-Regular Graphs  K_n(4)",
-                     "K12_4", "K13_4",  "K14_4"}, //"K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4", "K13_4", "K14_4"},*/
-                     //    "K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4", "K13_4",  "K14_4"}, //"K7_4", "K8_4", "K9_4", "K10_4", "K11_4", "K12_4", "K13_4", "K14_4"},*/
-             {"5-Regular Graphs  K_n(5)",
-                      "K8_5", "K10_5", "K12_5"},  //,   "K14_5" },*/   // "K6_5", "K8_5", "K10_5", "K12_5"},
-            /* {"6-Regular Graphs  K_n(6)",
-                        "K6_6", "K7_6", "K8_6", "K9_6", "K10_6", "K11_6", "K14_6"},
-             {"7-Regular Graphs  K_n(7)",
-                        "K14_7", "K8_7", "K10_7", "K12_7", "K14_7"}*/
-        };
+    public static void main(String[] args) {
+        Output output = Output.fromArgs(args);
 
+        printBanner();
+        printHeader();
+        printRule('=');
 
+        for (PaperBenchmarkData.Group group : PaperBenchmarkData.GROUPS) {
+            System.out.println();
+            System.out.println("  ─── " + group.title() + " ───");
 
-        printColumnHeader();
-        printHRule('=');
-
-        for (String[] group : groups) {
-            printGroupLabel(group[0]);
-
-            for (int i = 1; i < group.length; i++) {
-                TestCase tc = lookup.get(group[i]);
-                if (tc == null) continue;
-
-               // Result rOptRevLex_nei_con =   CpModels.testOptRevLexNeiCon(tc.degrees);
-
-
-              //  Result rOptRevLex_nei_con =   CpModels.testOptRevLexAdjCon(tc.degrees);
-                // ---- Symmetry breaking (Adjacency Model) ----
-                //Result rLex_adj = null;// CpModels.testLexAdj(tc.degrees);
-               // Result rOptLex_adj =  rOptRevLex_nei_con  ;//   CpModels.testOptLexAdj(tc.degrees);
-                Result rOptRevLex_adj =     CpModels.testOptRevLexAdj(tc.degrees);
-                Result rOptRevLex_adj_con =  CpModels.testOptRevLexAdjCon(tc.degrees);
-
-                // ---- Symmetry breaking (Neighbors Model) ----
-                //Result rLex_nei =   null;//  CpModels.testLexNei(tc.degrees);
-               // Result rOptLex_nei =   CpModels.testOptLexNei(tc.degrees);
-
-                //System.out.println("testOptRevLexNei started ");
-                Result rOptRevLex_nei =     CpModels.testOptRevLexNei(tc.degrees);
-
-                //System.out.println("testOptRevLexNei ended ");
-
-                   Result rOptRevLex_nei_con =   CpModels.testOptRevLexNeiCon(tc.degrees);
-
-                printInstanceRows(tc.name,
-                        new Result[]{rOptRevLex_adj, rOptRevLex_nei, rOptRevLex_adj_con, rOptRevLex_nei_con});
-                printHRule('-');
+            for (TestCase tc : group.instances()) {
+                List<Result> results = new ArrayList<>();
+                for (Config c : CONFIGS) {
+                    results.add(run(tc, c, output));
+                }
+                printInstance(tc.name(), results);
+                printRule('-');
             }
         }
 
+        if (output.enabled()) {
+            System.out.println();
+            System.out.printf("Graphs saved to %s/ (%s%s%s), at most the first %,d per run.%n",
+                    output.dir(), output.txt() ? ".txt" : "", output.txt() && output.pdf() ? " + " : "",
+                    output.pdf() ? ".pdf" : "", output.limitGraphs());
+        }
         printFooter();
+    }
+
+    /**
+     * Solves one instance under one configuration. When saving is on, the first
+     * {@code limitGraphs} graphs are kept and written once the search ends;
+     * the search itself always runs to completion.
+     */
+    private static Result run(TestCase tc, Config c, Output output) {
+        if (!output.enabled()) {
+            return CpModels.solve(tc.vertices(), tc.degree(), c.encoding(), c.connected(), null);
+        }
+
+        List<int[][]> kept = new ArrayList<>();
+        SolutionListener keepFirst = values -> {
+            if (kept.size() < output.limitGraphs()) kept.add(values.get());
+        };
+        Result r = CpModels.solve(tc.vertices(), tc.degree(), c.encoding(), c.connected(), keepFirst);
+
+        String title = tc.name() + "_" + c.label();
+        if (output.txt()) GraphFiles.writeTxt(output.dir(), title, tc, c.encoding(), r.count(), kept);
+        if (output.pdf()) GraphFiles.writePdf(output.dir(), title, tc, c.encoding(), r.count(), kept);
+        return r;
     }
 
     // =========================================================================
@@ -130,80 +138,38 @@ public class Main {
         System.out.println();
         System.out.println("=".repeat(w));
         System.out.println(center("d-Regular Graph Generation — Benchmark", w));
-        System.out.println(center(
-                "OptLex / OptRevLex  ×  Symmetry-breaking & Connectivity", w));
+        System.out.println(center("OptRevLex  ×  Adjacency / Neighbors  ×  Connectivity", w));
         System.out.println("=".repeat(w));
         System.out.println();
-        System.out.println("Metrics:  Row 1 = Sol (CPU time s)   |   Row 2 = Failures/Branches/ChoicePoints");
-        System.out.println("(>60000s) = time-limit exceeded        |   -- = not collected");
-        System.out.println();
-        System.out.println("  Columns:");
+        System.out.println("Row 1 = solutions (time)   |   Row 2 = peak memory");
         System.out.println();
     }
 
-    private static void printGroupLabel(String title) {
-        System.out.println();
-        System.out.println("  ─── " + title + " ───");
+    private static void printHeader() {
+        printRow("Instance", CONFIGS.stream().map(Config::label).toList());
+        printRow("", CONFIGS.stream().map(c -> "Sol(s) | memory").toList());
     }
 
-    /**
-     * Two-line column header:
-     * <pre>
-     *   Line 1: individual column names
-     *   Line 2: metric sub-label
-     * </pre>
-     */
-    private static void printColumnHeader() {
-        // Line 1 — column names
-        StringBuilder r1 = new StringBuilder("|");
-        r1.append(pad("Instance", W_INST)).append("|");
-        for (String lbl : ALL_COLS) {
-            r1.append(center(lbl, W_COL)).append("|");
-        }
-        System.out.println(r1);
-
-        // Line 2 — metric sub-label
-        StringBuilder r2 = new StringBuilder("|");
-        r2.append(pad("", W_INST)).append("|");
-        for (String ignored : ALL_COLS) {
-            r2.append(center("Sol(s) | f/br/ch", W_COL)).append("|");
-        }
-        System.out.println(r2);
+    private static void printInstance(String name, List<Result> results) {
+        printRow(name, results.stream().map(Main::solutionsAndTime).toList());
+        printRow("  memory", results.stream().map(Main::memory).toList());
     }
 
-    private static void printHRule(char ch) {
-        String seg = String.valueOf(ch).repeat(W_COL);
-        StringBuilder sb = new StringBuilder("+");
-        sb.append(String.valueOf(ch).repeat(W_INST)).append("+");
-        for (String ignored : ALL_COLS) {
-            sb.append(seg).append("+");
+    private static void printRow(String name, List<String> cells) {
+        StringBuilder sb = new StringBuilder("|").append(padRight(name, NAME_WIDTH)).append("|");
+        for (String cell : cells) {
+            sb.append(center(cell, COL_WIDTH)).append("|");
         }
         System.out.println(sb);
     }
 
-    /**
-     * Prints two sub-rows per instance across all 5 columns.
-     * <pre>
-     *   Row 1: instance name | sol (time) × 5
-     *   Row 2: "  f/br/ch"  | f/br/ch    × 5
-     * </pre>
-     */
-    private static void printInstanceRows(String name, Result[] cols) {
-        // Row 1: Solutions + Time
-        StringBuilder r1 = new StringBuilder("|");
-        r1.append(pad(name, W_INST)).append("|");
-        for (Result r : cols) {
-            r1.append(center(r == null ? "--" : solTime(r), W_COL)).append("|");
+    private static void printRule(char ch) {
+        String c = String.valueOf(ch);
+        StringBuilder sb = new StringBuilder("+").append(c.repeat(NAME_WIDTH)).append("+");
+        for (int i = 0; i < CONFIGS.size(); i++) {
+            sb.append(c.repeat(COL_WIDTH)).append("+");
         }
-        System.out.println(r1);
-
-        // Row 2: f / br / ch
-        StringBuilder r2 = new StringBuilder("|");
-        r2.append(pad("  f/br/ch", W_INST)).append("|");
-        for (Result r : cols) {
-            r2.append(center(r == null ? "--" : fbch(r), W_COL)).append("|");
-        }
-        System.out.println(r2);
+        System.out.println(sb);
     }
 
     private static void printFooter() {
@@ -216,47 +182,34 @@ public class Main {
     }
 
     // =========================================================================
-    //  VALUE FORMATTERS
+    //  FORMATTING
     // =========================================================================
 
-    private static String solTime(Result r) {
-        String t = (r.cpu >= 600000_000)
-                ? "(>6000000s)"
-                : String.format("%.2fs", r.cpu / 1000.0);
-        return String.format("%,d (%s)", r.count, t);
+    private static String solutionsAndTime(Result r) {
+        return String.format("%,d (%.2fs)", r.count(), r.timeMs() / 1000.0);
     }
 
-    private static String fbch(Result r) {
-        return metric(r.fails) + "/" + metric(r.branches) + "/" + metric(r.choicePoints);
+    /** Bytes as "512 KB", "12.3 MB" or "1.25 GB". */
+    private static String memory(Result r) {
+        double kb = r.memoryBytes() / 1024.0;
+        if (kb < 1024) return String.format("%.0f KB", kb);
+        double mb = kb / 1024.0;
+        if (mb < 1024) return String.format("%.1f MB", mb);
+        return String.format("%.2f GB", mb / 1024.0);
     }
 
-    private static String metric(long v) {
-        if (v < 0) return "--";
-        if (v >= 1_000_000L) return String.format("%.1fM", v / 1_000_000.0);
-        if (v >= 1_000L) return String.format("%.1fK", v / 1_000.0);
-        return Long.toString(v);
-    }
-
-    // =========================================================================
-    //  LAYOUT HELPERS
-    // =========================================================================
-
-    private static String pad(String s, int width) {
+    private static String padRight(String s, int width) {
         String cell = " " + s;
-        if (cell.length() >= width) return cell.substring(0, width);
-        return cell + " ".repeat(width - cell.length());
+        return cell.length() >= width ? cell.substring(0, width) : cell + " ".repeat(width - cell.length());
     }
 
     private static String center(String s, int width) {
-        if (s == null) s = "";
         if (s.length() >= width) return s.substring(0, width);
-        int total = width - s.length();
-        int left = total / 2;
-        int right = total - left;
-        return " ".repeat(left) + s + " ".repeat(right);
+        int left = (width - s.length()) / 2;
+        return " ".repeat(left) + s + " ".repeat(width - s.length() - left);
     }
 
     private static int tableWidth() {
-        return 1 + W_INST + 1 + ALL_COLS.length * (W_COL + 1);
+        return 1 + NAME_WIDTH + 1 + CONFIGS.size() * (COL_WIDTH + 1);
     }
 }
