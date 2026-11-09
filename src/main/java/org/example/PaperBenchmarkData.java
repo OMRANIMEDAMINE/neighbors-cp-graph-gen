@@ -121,7 +121,7 @@ public class PaperBenchmarkData {
 
             new TestCase("K16_3",
                     new int[]{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
-                    "K_14(3): 3-regular on 16 vertices (timeout expected for some configs)"),
+                    "K_16(3): 3-regular on 16 vertices (timeout expected for some configs)"),
 
             // =====================================================================
             // d = 4  —  4-regular graphs
@@ -194,7 +194,6 @@ public class PaperBenchmarkData {
 
             // =====================================================================
             // d = 6  —  6-regular graphs
-            // Note: 6-regular requires n even.
             // =====================================================================
             new TestCase("K7_6",
                     new int[]{6,6,6,6,6,6,6},
