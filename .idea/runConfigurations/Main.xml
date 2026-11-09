@@ -1,0 +1,10 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Main" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="org.example.Main" />
+    <module name="neighbors-cp-graph-gen-main" />
+    <option name="VM_PARAMETERS" value="-Djava.library.path=/opt/ibm/ILOG/CPLEX_Studio_Community2211/opl/bin/x86-64_linux" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

@@ -16,8 +16,8 @@ import java.util.Arrays;
  *   <li><b>Adjacency model</b> ({@code *Adj}): an n×n 0/1 matrix, {@code M[i][j] = 1}
  *       iff vertices i and j are adjacent.</li>
  *   <li><b>Neighbors model</b> ({@code *Nei}): row i lists the neighbors of vertex i
- *       as 1-based labels in strictly increasing order (n×(n-1) with leading 0 padding
- *       for all graphs; n×d with no padding when the degree is fixed).</li>
+ *       as 1-based labels: an n×(n-1) matrix, empty slots hold 0 and come first, then
+ *       the neighbors in strictly increasing order.</li>
  * </ul>
  *
  * <p>Each encoding is combined with OptRevLex symmetry breaking, and optionally
@@ -94,54 +94,47 @@ public class CpModels {
     }
 
     /**
-     * Neighbors model: row i holds the neighbors of vertex i as 1-based labels in {1..n}.
-     * <ul>
-     *   <li><b>All graphs</b> ({@link #ANY_DEGREE}): every row has n-1 slots (the maximum
-     *       degree); unused slots hold 0 and come first, e.g. {@code 0 0 2 5} = neighbors {2, 5}.</li>
-     *   <li><b>d fixed</b>: every row has exactly d slots, all filled.</li>
-     * </ul>
-     * Posted constraints:
+     * Neighbors model: an n×(n-1) matrix, row i holds the neighbors of vertex i as
+     * 1-based labels in {1..n}. n-1 is the maximum degree; unused slots hold 0 and come
+     * first, e.g. {@code 0 0 2 5} = neighbors {2, 5}. Posted constraints:
      * <ol>
      *   <li>No self-loop: vertex i (label i+1) never lists itself</li>
-     *   <li>Ordered rows: neighbors are distinct and strictly increasing
-     *       (after the leading zeros, for all graphs)</li>
+     *   <li>Ordered rows: leading zeros, then strictly increasing neighbors</li>
+     *   <li>Degree: exactly d non-zero slots per row (only when d is fixed)</li>
      *   <li>Symmetry: v is a neighbor of u iff u is a neighbor of v</li>
      * </ol>
      *
      * @param cp the CP solver instance
      * @param N  number of vertices
      * @param d  degree of every vertex, or {@link #ANY_DEGREE}
-     * @return the matrix of decision variables, n rows of n-1 (or d) slots
+     * @return the n×(n-1) matrix of decision variables
      */
     private static IloIntVar[][] buildBaseModelNei(IloCP cp, int N, int d)
             throws IloException {
-        boolean regular = d != ANY_DEGREE;
-        int D = regular ? d : N - 1;   // slots per row
-        int min = regular ? 1 : 0;     // 0 = empty slot, only when the degree is free
+        int D = N - 1;   // slots per row = maximum degree
 
         IloIntVar[][] M = new IloIntVar[N][];
         for (int i = 0; i < N; i++) {
-            M[i] = cp.intVarArray(D, min, N);
+            M[i] = cp.intVarArray(D, 0, N);   // 0 = empty slot
 
             // 1. No self-loop
             for (int j = 0; j < D; j++) {
                 cp.add(cp.neq(M[i][j], i + 1));
             }
 
-            // 2. Ordered neighbor list
+            // 2. Ordered row: a slot is empty (0), or the next slot holds a larger label,
+            //    so zeros can only come before the neighbors, which are strictly increasing
             for (int j = 0; j < D - 1; j++) {
-                if (regular) {
-                    // strictly increasing
-                    cp.add(cp.lt(M[i][j], M[i][j + 1]));
-                } else {
-                    // a slot is empty (0), or the next slot holds a larger label,
-                    // so zeros can only come before the neighbors, which are increasing
-                    cp.add(cp.or(cp.eq(M[i][j], 0), cp.lt(M[i][j], M[i][j + 1])));
-                }
+                cp.add(cp.or(cp.eq(M[i][j], 0), cp.lt(M[i][j], M[i][j + 1])));
+            }
+
+            // 3. Degree: d neighbors = N-1-d empty slots (only when d is fixed)
+            if (d != ANY_DEGREE) {
+                cp.add(cp.eq(cp.count(M[i], 0), D - d));
             }
         }
 
-        // 3. Symmetry: count(v in N(u)) == count(u in N(v)), each count being 0 or 1
+        // 4. Symmetry: count(v in N(u)) == count(u in N(v)), each count being 0 or 1
         //    (padding zeros never match, since labels are >= 1)
         for (int u = 0; u < N; u++) {
             for (int v = u + 1; v < N; v++) {
@@ -153,6 +146,8 @@ public class CpModels {
 
         return M;
     }
+
+
 
     // =========================================================================
     //  SYMMETRY BREAKING  (OptRevLex)
@@ -197,7 +192,8 @@ public class CpModels {
                 // right-most column most significant (hence reverse).
                 cp.add(cp.lexicographic(
                         reverse(arrayNew(C[i], i, j)),
-                        reverse(arrayNew(C[j], i, j))));
+                        reverse(arrayNew(C[j], i, j)))
+                );
             }
         }
     }

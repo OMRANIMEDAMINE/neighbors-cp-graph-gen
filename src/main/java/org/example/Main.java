@@ -27,7 +27,7 @@ public class Main {
      * true  = also post the upper off-diagonal connectivity constraint (connected graphs only);
      * false = OptRevLex symmetry breaking only (connected or not).
      */
-    private static final boolean CONNECTIVITY = true;
+    private static final boolean CONNECTIVITY = false;
 
     /**
      * true  = print every solution (graph) found to the console, before the table row;
