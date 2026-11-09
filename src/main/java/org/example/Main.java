@@ -2,7 +2,6 @@ package org.example;
 
 import org.example.CpModels.Connectivity;
 import org.example.CpModels.Encoding;
-import org.example.CpModels.SolutionListener;
 
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -40,8 +39,8 @@ public class Main {
     );
 
     // ---- Output defaults (overridable from the command line) ----
-    private static final boolean SAVE_TXT = false;
-    private static final boolean SAVE_PDF = false;
+    private static final boolean SAVE_TXT = true;
+    private static final boolean SAVE_PDF = true;
     /** Output-only cap: the first LIMIT_GRAPHS graphs of each run are written, to bound memory. */
     private static final int LIMIT_GRAPHS = 10;
     private static final String OUTPUT_DIR = "results";
@@ -111,24 +110,16 @@ public class Main {
     }
 
     /**
-     * Solves one instance under one configuration. When saving is on, the first
-     * {@code limitGraphs} graphs are kept and written once the search ends;
-     * the search itself always runs to completion.
+     * Solves one instance under one configuration (the search always runs to completion).
+     * When saving is on, the first {@code limitGraphs} graphs are written to disk.
      */
     private static Result run(TestCase tc, Config c, Output output) {
-        if (!output.enabled()) {
-            return CpModels.solve(tc.vertices(), c.encoding(), c.connectivity(), null);
-        }
-
-        List<int[][]> kept = new ArrayList<>();
-        SolutionListener keepFirst = values -> {
-            if (kept.size() < output.limitGraphs()) kept.add(values.get());
-        };
-        Result r = CpModels.solve(tc.vertices(), c.encoding(), c.connectivity(), keepFirst);
+        int maxKept = output.enabled() ? output.limitGraphs() : 0;
+        Result r = CpModels.solve(tc.vertices(), c.encoding(), c.connectivity(), maxKept);
 
         String title = tc.name() + "_" + c.label();
-        if (output.txt()) GraphFiles.writeTxt(output.dir(), title, tc, c.encoding(), r.count(), kept);
-        if (output.pdf()) GraphFiles.writePdf(output.dir(), title, tc, c.encoding(), r.count(), kept);
+        if (output.txt()) GraphFiles.writeTxt(output.dir(), title, tc, c.encoding(), r.count(), r.graphs());
+        if (output.pdf()) GraphFiles.writePdf(output.dir(), title, tc, c.encoding(), r.count(), r.graphs());
         return r;
     }
 
