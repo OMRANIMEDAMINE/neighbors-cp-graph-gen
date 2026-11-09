@@ -443,7 +443,32 @@ public class CpModels {
     // =========================================================================
     //  ARRAY UTILITIES
     // =========================================================================
+    /**
+     * Returns the row array in <em>forward</em> order with only
+     * column {@code exclude1} removed.
+     *
+     * <p>Used by OptLex and the hybrid (when Lex is selected).</p>
+     */
+    public static IloIntExpr[] arrayNewWithoutJ(IloIntExpr[] array, int exclude1) {
+        if (array == null) throw new IllegalArgumentException("array must not be null");
 
+        int len = array.length;
+        if (exclude1 < 0 || exclude1 >= len) {
+            throw new IllegalArgumentException(
+                    "Exclude index must be in [0, " + len + ")");
+        }
+
+        IloIntExpr[] result = new IloIntExpr[len - 1];
+        int idx = 0;
+
+        for (int i = 0; i < len; i++) {
+            if (i != exclude1) {
+                result[idx++] = array[i];
+            }
+        }
+
+        return result;
+    }
 
     /**
      * Returns the row array in <em>forward</em> order with columns
