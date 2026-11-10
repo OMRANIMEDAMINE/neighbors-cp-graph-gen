@@ -172,7 +172,7 @@ public class CpModels {
      * The order is not strict, so the zeros may repeat; the neighbors are still strictly
      * ordered because the base model makes them all different (all different except 0).
      * Required by the OptLex / OptRevLex Nei variants (the *Direct ones read the rows as
-     * sorted lists) and by {@link #addOffDiagNeiConnectivity}.
+     * sorted lists) and by {@link #addOffDiagNeiDirectConnectivity}.
      */
     private static void addOrderedRows(IloCP cp, IloIntVar[][] M, boolean descending)
             throws IloException {
@@ -412,12 +412,33 @@ public class CpModels {
     }
 
     /**
-     * Neighbors model: same condition as {@link #addOffDiagAdjConnectivity}. Rows are
-     * sorted, so it reduces to "the largest neighbor of row i is above i's label", a single
-     * unary constraint per vertex, O(n) in total. The largest neighbor is the first slot
-     * for descending rows (OptRevLex), the last slot for increasing rows (OptLex).
+     * Neighbors model, same reasoning as {@link #addOffDiagAdjConnectivity}, posted on the
+     * 0/1 rows rebuilt as expressions over the neighbor lists
+     * ({@code C[i][v] = count(M[i], v+1)}): for every vertex i &lt; n-1,
+     * {@code sum_{v > i} C[i][v] > 0}. Does not depend on the order of the slots.
      */
-    private static void addOffDiagNeiConnectivity(IloCP cp, IloIntVar[][] M, boolean descending)
+    private static void addOffDiagNeiConnectivity(IloCP cp, IloIntVar[][] M)
+            throws IloException {
+        int N = M.length;
+        for (int i = 0; i < N - 1; i++) {
+            IloIntExpr[] upper = new IloIntExpr[N - 1 - i];
+            for (int v = i + 1; v < N; v++) {
+                upper[v - i - 1] = cp.count(M[i], v + 1);
+            }
+            cp.add(cp.gt(cp.sum(upper), 0));
+        }
+    }
+
+    /**
+     * Neighbors model, posted directly on the neighbor lists: same condition as
+     * {@link #addOffDiagAdjConnectivity}. Rows are sorted ({@link #addOrderedRows}), so it
+     * reduces to "the largest neighbor of row i is above i's label", a single unary
+     * constraint per vertex, O(n) in total. The largest neighbor is the first slot for
+     * descending rows (OptRevLex), the last slot for increasing rows (OptLex). An empty
+     * row holds 0 there and fails, as it must.
+     */
+    private static void addOffDiagNeiDirectConnectivity(IloCP cp, IloIntVar[][] M,
+                                                         boolean descending)
             throws IloException {
         int N = M.length;
         int max = descending ? 0 : M[0].length - 1;
@@ -528,7 +549,7 @@ public class CpModels {
             addOrderedRows(cp, M, true);
             addOptRevLexNei(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M, true);
+                addOffDiagNeiConnectivity(cp, M);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -553,7 +574,7 @@ public class CpModels {
             addOrderedRows(cp, M, true);
             addOptRevLexNeiDirect(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M, true);
+                addOffDiagNeiDirectConnectivity(cp, M, true);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -600,7 +621,7 @@ public class CpModels {
             addOrderedRows(cp, M, false);
             addOptLexNei(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M, false);
+                addOffDiagNeiConnectivity(cp, M);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -625,7 +646,7 @@ public class CpModels {
             addOrderedRows(cp, M, false);
             addOptLexNeiDirect(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M, false);
+                addOffDiagNeiDirectConnectivity(cp, M, false);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
