@@ -16,8 +16,9 @@ import java.util.Arrays;
  *   <li><b>Adjacency model</b> ({@code *Adj}): an n×n 0/1 matrix, {@code M[i][j] = 1}
  *       iff vertices i and j are adjacent.</li>
  *   <li><b>Neighbors model</b> ({@code *Nei}): row i lists the neighbors of vertex i
- *       as 1-based labels: an n×(n-1) matrix, empty slots hold 0 and come first, then
- *       the neighbors in strictly increasing order.</li>
+ *       as 1-based labels: an n×(n-1) matrix, empty slots hold 0. Rows are sorted as
+ *       part of the symmetry breaking: increasing with zeros first for OptLex, decreasing
+ *       with zeros last for OptRevLex (see {@link #addOrderedRows}).</li>
  * </ul>
  *
  * <p>Each encoding is combined with OptRevLex symmetry breaking, and optionally
@@ -95,8 +96,8 @@ public class CpModels {
 
     /**
      * Neighbors model: an n×(n-1) matrix, row i holds the neighbors of vertex i as
-     * 1-based labels in {1..n}. n-1 is the maximum degree; unused slots hold 0 and come
-     * first, e.g. {@code 0 0 2 5} = neighbors {2, 5}. Posted constraints:
+     * 1-based labels in {1..n}. n-1 is the maximum degree; unused slots hold 0, e.g.
+     * {@code 0 0 2 5} (OptLex) or {@code 5 2 0 0} (OptRevLex) = neighbors {2, 5}. Posted constraints:
      * <ol>
      *   <li>No self-loop: vertex i (label i+1) never lists itself</li>
      *   <li>All different except 0: a neighbor is listed at most once per row</li>
@@ -160,15 +161,26 @@ public class CpModels {
 
     /**
      * Neighbors model: breaks the symmetry between the slots of a row, so every neighbor
-     * set has a single row: a slot is empty (0), or the next slot holds a larger label,
-     * so zeros can only come before the neighbors, which are strictly increasing.
+     * set has a single row, sorted in the same direction as the order between rows:
+     * <ul>
+     *   <li>{@code descending = false} (OptLex, columns read left to right, "&lt;="):
+     *       0 is the smallest value, so the zeros come first, then the neighbors
+     *       increasing, e.g. {@code 0 0 2 5}.</li>
+     *   <li>{@code descending = true} (OptRevLex, columns read right to left, "&gt;="):
+     *       the neighbors come first, decreasing, then the zeros, e.g. {@code 5 2 0 0}.</li>
+     * </ul>
+     * The order is not strict, so the zeros may repeat; the neighbors are still strictly
+     * ordered because the base model makes them all different (all different except 0).
      * Required by the OptLex / OptRevLex Nei variants (the *Direct ones read the rows as
      * sorted lists) and by {@link #addOffDiagNeiConnectivity}.
      */
-    private static void addOrderedRows(IloCP cp, IloIntVar[][] M) throws IloException {
+    private static void addOrderedRows(IloCP cp, IloIntVar[][] M, boolean descending)
+            throws IloException {
         for (IloIntVar[] row : M) {
             for (int j = 0; j < row.length - 1; j++) {
-                cp.add(cp.or(cp.eq(row[j], 0), cp.lt(row[j], row[j + 1])));
+                cp.add(descending
+                        ? cp.ge(row[j], row[j + 1])
+                        : cp.le(row[j], row[j + 1]));
             }
         }
     }
@@ -228,7 +240,8 @@ public class CpModels {
      * <pre>
      *   rev(M[i] − {j+1})  ≤lex  rev(M[j] − {i+1})
      * </pre>
-     * where {@code rev} reads a row right-to-left (neighbors descending, zeros last) and
+     * where {@code rev} is the 0/1 row read right-to-left, i.e. the neighbor list itself:
+     * rows are already sorted descending with zeros last ({@link #addOrderedRows}), and
      * {@code −} deletes that label (see {@link #dropLabel}). Removing columns i and j from
      * both 0/1 rows leaves the vectors of N(i)\{j} and N(j)\{i}; reverse lexicographic order
      * on those vectors means "the largest element of the symmetric difference belongs to
@@ -251,7 +264,7 @@ public class CpModels {
     }
 
     /**
-     * Returns the reversed neighbor list of a row (neighbors descending, zeros last) with
+     * Returns the neighbor list of a row (already descending, zeros last) with
      * {@code label} deleted, as n-2 expressions. {@code e} is 1 iff {@code label} is in the
      * row. Every entry at or after the position of {@code label} moves one slot to the left:
      * <pre>
@@ -262,7 +275,7 @@ public class CpModels {
     private static IloIntExpr[] dropLabel(IloCP cp, IloIntVar[] row, int label, IloIntExpr e)
             throws IloException {
         int D = row.length;
-        IloIntExpr[] R = reverse(row);
+        IloIntExpr[] R = row;   // sorted descending by addOrderedRows(.., true)
         IloIntExpr[] out = new IloIntExpr[D - 1];
         for (int k = 0; k < D - 1; k++) {
             IloIntExpr shifted = cp.prod(e, cp.le(R[k], label));   // label sits at a slot <= k
@@ -400,15 +413,16 @@ public class CpModels {
 
     /**
      * Neighbors model: same condition as {@link #addOffDiagAdjConnectivity}. Rows are
-     * sorted (padding zeros first), so it reduces to "the last slot of row i, its largest
-     * neighbor, is above i's label", a single unary constraint per vertex, O(n) in total.
+     * sorted, so it reduces to "the largest neighbor of row i is above i's label", a single
+     * unary constraint per vertex, O(n) in total. The largest neighbor is the first slot
+     * for descending rows (OptRevLex), the last slot for increasing rows (OptLex).
      */
-    private static void addOffDiagNeiConnectivity(IloCP cp, IloIntVar[][] M)
+    private static void addOffDiagNeiConnectivity(IloCP cp, IloIntVar[][] M, boolean descending)
             throws IloException {
         int N = M.length;
-        int D = M[0].length;
+        int max = descending ? 0 : M[0].length - 1;
         for (int i = 0; i < N - 1; i++) {
-            cp.add(cp.gt(M[i][D - 1], i + 1));
+            cp.add(cp.gt(M[i][max], i + 1));
         }
     }
 
@@ -511,10 +525,10 @@ public class CpModels {
         try {
             IloCP cp = new IloCP();
             IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M);
+            addOrderedRows(cp, M, true);
             addOptRevLexNei(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
+                addOffDiagNeiConnectivity(cp, M, true);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -536,10 +550,10 @@ public class CpModels {
         try {
             IloCP cp = new IloCP();
             IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M);
+            addOrderedRows(cp, M, true);
             addOptRevLexNeiDirect(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
+                addOffDiagNeiConnectivity(cp, M, true);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -583,10 +597,10 @@ public class CpModels {
         try {
             IloCP cp = new IloCP();
             IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M);
+            addOrderedRows(cp, M, false);
             addOptLexNei(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
+                addOffDiagNeiConnectivity(cp, M, false);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
@@ -608,10 +622,10 @@ public class CpModels {
         try {
             IloCP cp = new IloCP();
             IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M);
+            addOrderedRows(cp, M, false);
             addOptLexNeiDirect(cp, M, n);
             if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
+                addOffDiagNeiConnectivity(cp, M, false);
             }
             configureSolver(cp);
             return collectResults(cp, M, Encoding.NEIGHBORS, title);
