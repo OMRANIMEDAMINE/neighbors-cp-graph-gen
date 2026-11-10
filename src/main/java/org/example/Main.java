@@ -14,14 +14,14 @@ public class Main {
     // =========================================================================
 
     /** Numbers of vertices N to run, one table row each (each N >= 2). */
-    private static final int[] N_VALUES = {5};
+    private static final int[] N_VALUES = {6,8,10};
 
     /**
      * CpModels.ANY_DEGREE = all graphs on N vertices;
      * d >= 1              = only d-regular graphs (every vertex has degree d).
      * An N with no d-regular graph (d >= N, or N·d odd) is skipped.
      */
-    private static final int DEGREE = CpModels.ANY_DEGREE; // Or d
+    private static final int DEGREE = 3;// CpModels.ANY_DEGREE; // Or d
 
     /**
      * true  = also post the upper off-diagonal connectivity constraint (connected graphs only);
@@ -33,12 +33,17 @@ public class Main {
      * true  = print every solution (graph) found to the console, before the table row;
      * false = count solutions only. Printing slows the runs and is included in the time.
      */
-    private static final boolean PRINT_SOLUTIONS = true;
+    private static final boolean PRINT_SOLUTIONS = false;
 
-    /** Table columns, in the same order as the results passed to printInstanceRows. */
+    /**
+     * Table columns, in the same order as the results passed to printInstanceRows.
+     * The upper off-diagonal connectivity constraint is only valid with OptRevLex,
+     * so the OptLex variants are not run when CONNECTIVITY is on.
+     */
     private static final String[] ALL_COLS = CONNECTIVITY
-            ? new String[]{"OptRevLexAdjCon", "OptRevLexNeiCon"}
-            : new String[]{"OptRevLexAdj", "OptRevLexNei"};
+            ? new String[]{"OptRevLexAdjCon", "OptRevLexNeiCon", "OptRevLexNeiDirCon"}
+            : new String[]{"OptLexAdj", "OptLexNei", "OptLexNeiDir",
+                           "OptRevLexAdj", "OptRevLexNei", "OptRevLexNeiDir"};
 
     /** Width of the instance-name column. */
     private static final int W_INST = 10;
@@ -78,16 +83,33 @@ public class Main {
             }
 
             // Title shown above the printed solutions; null disables printing.
-            Result rAdj = CpModels.testOptRevLexAdj(n, DEGREE, CONNECTIVITY,
-                    PRINT_SOLUTIONS ? name + " " + ALL_COLS[0] : null);
-            Result rNei = CpModels.testOptRevLexNei(n, DEGREE, CONNECTIVITY,
-                    PRINT_SOLUTIONS ? name + " " + ALL_COLS[1] : null);
+            // OptLex variants only run without connectivity (see ALL_COLS).
+            Result[] results;
+            if (CONNECTIVITY) {
+                results = new Result[]{
+                        CpModels.testOptRevLexAdj(n, DEGREE, true, title(name, 0)),
+                        CpModels.testOptRevLexNei(n, DEGREE, true, title(name, 1)),
+                        CpModels.testOptRevLexNeiDirect(n, DEGREE, true, title(name, 2))};
+            } else {
+                results = new Result[]{
+                        CpModels.testOptLexAdj(n, DEGREE, false, title(name, 0)),
+                        CpModels.testOptLexNei(n, DEGREE, false, title(name, 1)),
+                        CpModels.testOptLexNeiDirect(n, DEGREE, false, title(name, 2)),
+                        CpModels.testOptRevLexAdj(n, DEGREE, false, title(name, 3)),
+                        CpModels.testOptRevLexNei(n, DEGREE, false, title(name, 4)),
+                        CpModels.testOptRevLexNeiDirect(n, DEGREE, false, title(name, 5))};
+            }
 
-            printInstanceRows(name, new Result[]{rAdj, rNei});
+            printInstanceRows(name, results);
             printHRule('-');
         }
 
         printFooter();
+    }
+
+    /** Title shown above the printed solutions of column {@code col}; null disables printing. */
+    private static String title(String name, int col) {
+        return PRINT_SOLUTIONS ? name + " " + ALL_COLS[col] : null;
     }
 
     /** Row name: "N8" for all graphs, "N8_d3" when the degree is fixed. */

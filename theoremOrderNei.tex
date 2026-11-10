@@ -510,6 +510,148 @@ for all graphs it produces fewer duplicate labellings than OptRevLex on the adja
 regular instance, as predicted by Lemma~\ref{lem:incregular}.
 
 %=====================================================================
+\section{OptRevLex posted directly on the neighbor lists}\label{sec:direct}
+%=====================================================================
+
+The model posts the OptLex constraint of~\cite{codish13} in its \emph{reversed} form
+(OptRevLex): the columns are read right to left, so the right-most column is the most
+significant. Until now the neighbors model posted it on 0/1 rows rebuilt from the lists,
+$C[i][v]=\texttt{count}(\texttt{M[i]},v)$. This section shows that it can be stated
+directly on the lists, by deleting the label $j$ from the list of $i$ and the label $i$ from
+the list of $j$.
+
+\begin{definition}[Reversed reduced comparison]
+For $x\in\{0,1\}^m$ let $\overleftarrow{x}=(x_m,\dots,x_1)$. For $i<j$, \textsc{OptRevLex}
+requires
+\[
+  \overleftarrow{A[i]\setminus\{i,j\}}\;\lex\;\overleftarrow{A[j]\setminus\{i,j\}},
+\]
+where $A[v]\setminus\{i,j\}$ denotes the row with columns $i$ and $j$ deleted.
+\end{definition}
+
+\begin{definition}[Descending list without a label]
+For a vertex $v$ and a label $w$, let $\overleftarrow{\Lst}(v)$ be $\Lst(v)$ read right to
+left (the neighbors in decreasing order, followed by the zeros), and let
+$\overleftarrow{\Lst}(v)-w$ be that sequence with the label $w$ deleted if it occurs, and with
+its last entry deleted otherwise. Both have length $n-2$.
+\end{definition}
+
+\begin{lemma}[Reduced rows are sets]\label{lem:redsets}
+For $i<j$, the rows $A[i]\setminus\{i,j\}$ and $A[j]\setminus\{i,j\}$ are the characteristic
+vectors, over the common index set $V\setminus\{i,j\}$, of
+\[
+  S_i=\nb(i)\setminus\{j\},\qquad S_j=\nb(j)\setminus\{i\}.
+\]
+\end{lemma}
+
+\begin{proof}
+The entries deleted from row $i$ are $A[i][i]=0$ and $A[i][j]=e$; those deleted from row $j$
+are $A[j][i]=e$ and $A[j][j]=0$, with $e=1$ iff $\{i,j\}\in E$. The remaining entries of row
+$v\in\{i,j\}$ are $A[v][w]$ for $w\notin\{i,j\}$, i.e.\ the membership of $w$ in $\nb(v)$.
+Since $i\notin\nb(i)$ and $j\notin\nb(j)$, these are the memberships in $S_i$ and $S_j$.
+\end{proof}
+
+\begin{lemma}[Reversed order on characteristic vectors]\label{lem:maxdiff}
+Let $x,y$ be the characteristic vectors of $X,Y\subseteq U$ over an ordered index set $U$.
+Then $\overleftarrow{x}\lex\overleftarrow{y}$ iff $X=Y$ or $\max(X\mathbin{\triangle}Y)\in Y$.
+\end{lemma}
+
+\begin{proof}
+Read right to left, the first position where $x$ and $y$ differ is the largest element $w$
+of $X\triangle Y$; there $\overleftarrow{x}\slex\overleftarrow{y}$ iff $x_w=0<1=y_w$, i.e.\
+$w\in Y$.
+\end{proof}
+
+\begin{lemma}[The same order on descending lists]\label{lem:desclist}
+Let $X,Y\subseteq\{1,\dots,n\}$ with $|X|,|Y|\le m$, and let $\delta(X)$ be the elements of $X$
+in decreasing order followed by zeros, of length $m$. Then
+$\delta(X)\lex\delta(Y)$ iff $X=Y$ or $\max(X\triangle Y)\in Y$. This holds whatever
+$|X|$ and $|Y|$ are.
+\end{lemma}
+
+\begin{proof}
+If $X=Y$ both sides hold. Otherwise let $k$ be the first position where
+$\delta(X)=(a_1,a_2,\dots)$ and $\delta(Y)=(b_1,b_2,\dots)$ differ. The values
+$a_1=b_1,\dots,a_{k-1}=b_{k-1}$ are the elements of $X\cap Y$ larger than $\max(a_k,b_k)$,
+and no other element of $X\cup Y$ is larger than $\max(a_k,b_k)$. Labels are $\ge1$ and
+padding is $0$, so $\max(a_k,b_k)\ge1$ is a label and it belongs to exactly one of $X$, $Y$:
+it is $\max(X\triangle Y)$. It belongs to $Y$ iff $b_k>a_k$, i.e.\ iff
+$\delta(X)\slex\delta(Y)$.
+\end{proof}
+
+Lemma~\ref{lem:desclist} is different from the bridge Lemma~\ref{lem:bridge}: there the lists
+are read left to right, with the zeros first, which compares the degree first. Read
+right to left with the zeros last, the order on lists is exactly the reversed order on the
+0/1 vectors, for any degrees.
+
+\begin{theorem}[OptRevLex on neighbor lists]\label{thm:direct}
+For $i<j$,
+\[
+  \overleftarrow{A[i]\setminus\{i,j\}}\lex\overleftarrow{A[j]\setminus\{i,j\}}
+  \quad\iff\quad
+  \overleftarrow{\Lst}(i)-j\;\lex\;\overleftarrow{\Lst}(j)-i .
+\]
+Hence \textsc{OptRevLex} on the adjacency rows and the right-hand side posted for all
+$i<j$ accept exactly the same labelled graphs.
+\end{theorem}
+
+\begin{proof}
+$\overleftarrow{\Lst}(i)-j=\delta(S_i)$ and $\overleftarrow{\Lst}(j)-i=\delta(S_j)$ with
+$m=n-2$: deleting a label from a decreasing sequence keeps it decreasing, and if $j\notin\nb(i)$
+then $\deg(i)\le n-2$, so the deleted last entry is a padding $0$. By
+Lemma~\ref{lem:redsets} and Lemma~\ref{lem:maxdiff} (with $U=V\setminus\{i,j\}$) the left-hand
+side holds iff $S_i=S_j$ or $\max(S_i\triangle S_j)\in S_j$, and by Lemma~\ref{lem:desclist}
+so does the right-hand side.
+\end{proof}
+
+\begin{remark}[Both deletions are needed]
+Comparing the full lists $\overleftarrow{\Lst}(i)\lex\overleftarrow{\Lst}(j)$ is not
+equivalent. If $i$ and $j$ are adjacent,
+$\nb(i)\triangle\nb(j)=(S_i\triangle S_j)\cup\{i,j\}$, whose maximum is at least $j\in\nb(i)$;
+so the full comparison rejects every graph with $\max(S_i\triangle S_j)<j$, which
+\textsc{OptRevLex} accepts.
+\end{remark}
+
+\begin{remark}[The deletion does not carry over to the 0/1 rows]
+On the rows $C$, deleting column $j$ from row $i$ and column $i$ from row $j$ is \emph{not}
+the same constraint: row $i$ keeps column $i$ and row $j$ keeps column $j$, so between $i$
+and $j$ the entries are compared one column apart. The trick works on lists because there
+$i$ and $j$ are values, not positions. Experimentally this variant loses shapes
+(e.g.\ $7$ of $34$ shapes found for all graphs with $n=5$, none for $3$-regular graphs with
+$n=8$).
+\end{remark}
+
+\paragraph{Encoding with a fixed number of slots.}
+Let $R=\overleftarrow{\texttt{M[i]}}$ (length $n-1$) and
+$e=\texttt{count}(\texttt{M[i]},j)\in\{0,1\}$. Deleting the label $j$ moves every entry at or
+after its position one slot to the left, and these are exactly the entries $\le j$:
+\[
+  R'[k]=R[k]+s_k\,(R[k+1]-R[k]),\qquad s_k=e\cdot[\,R[k]\le j\,],\qquad k=1,\dots,n-2.
+\]
+When $e=0$ this drops the last slot, a $0$. The same $e$ is used for row $j$ (by symmetry
+$\texttt{count}(\texttt{M[j]},i)=e$), and the constraint is
+$\texttt{lexicographic}(R'_i,R'_j)$, implemented as \texttt{addOptRevLexNeiDirect}.
+
+\begin{table}[ht]
+\centering
+\caption{OptRevLex on the rebuilt 0/1 rows vs.\ directly on the lists (solutions / shapes,
+search branches, time). Both return the same set of labelled solutions in every case.}
+\label{tab:direct}
+\begin{tabular}{l rrr rrr}
+\toprule
+ & \multicolumn{3}{c}{0/1 rows $C$} & \multicolumn{3}{c}{lists directly}\\
+\cmidrule(lr){2-4}\cmidrule(lr){5-7}
+instance & sol./shapes & branches & time & sol./shapes & branches & time\\
+\midrule
+all graphs, $n=6$  & 276 / 156   & 135{,}856    & 0.18\,s & 276 / 156   & 127{,}699   & 0.27\,s\\
+all graphs, $n=7$  & 3158 / 1044 & 21{,}184{,}139 & 23.4\,s & 3158 / 1044 & 4{,}101{,}399 & 10.9\,s\\
+$3$-regular, $n=8$ & 15 / 6      & 6{,}683      & 0.15\,s & 15 / 6      & 47{,}572    & 0.23\,s\\
+$4$-regular, $n=9$ & 81 / 16     & 3{,}386{,}581  & 12.8\,s & 81 / 16     & 5{,}525{,}339 & 26.6\,s\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%=====================================================================
 \section{Relation to the literature}
 %=====================================================================
 
