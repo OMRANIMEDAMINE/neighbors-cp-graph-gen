@@ -206,88 +206,98 @@ public class CpModels {
     }
 
     /**
-     * Neighbors, OptRevLex posted directly on the neighbor lists, read from the largest
-     * neighbor down (the neighbor slots reversed): the same order as
-     * {@link #addOptRevLexNei}, without rebuilding the 0/1 rows. For every pair i &lt; j with
-     * deg[i] = deg[j], with e = 1 iff i and j are adjacent:
+     * Neighbors, OptRevLex posted directly on the rows. For every pair i &lt; j with
+     * deg[i] = deg[j]: drop label j+1 from row i and label i+1 from row j (if found), then
+     * compare the two rows with RevLex (last slot first):
      * <pre>
-     *   list(i) minus label j+1  ≤lex  list(j) minus label i+1
+     *   reverse(M[i] without j+1)  ≤lex  reverse(M[j] without i+1)
      * </pre>
      * Read right to left, the 0/1 rows first differ at the LARGEST vertex w of
-     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). In the decreasing lists the first
-     * difference is also at w, and the list holding w is the larger one.
+     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). The rows list the neighbors
+     * increasing, so read from the last slot they first differ at w too, and the row holding
+     * w is the larger one: the same order as {@link #addOptRevLexNei}. The fixed zeros are in
+     * the same slots of both rows (equal degrees), so they never decide.
      */
     private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         int n = deg.length;
         if (n < 3) return;
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
-                if (deg[i] != deg[j] || deg[i] == 0) continue;
-                IloIntExpr e = cp.count(M[i], j + 1);   // = count(M[j], i+1), by symmetry
-                // decreasing lists: the increasing neighbor slots 0..deg-1, reversed
-                IloIntExpr[] li = reverse(slots(M[i], 0, deg[i])), lj = reverse(slots(M[j], 0, deg[j]));
-                cp.add(cp.lexicographic(dropLabel(cp, li, j + 1, e), dropLabel(cp, lj, i + 1, e)));
+                if (deg[i] != deg[j]) continue;
+                IloIntExpr[] ri = dropForRevLex(cp, M[i], j + 1);   // row i without j+1
+                IloIntExpr[] rj = dropForRevLex(cp, M[j], i + 1);   // row j without i+1
+                cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
             }
         }
     }
 
     /**
-     * Neighbors, OptLex posted directly on the increasing lists: the same order as
-     * {@link #addOptLexNei}. For every pair i &lt; j with deg[i] = deg[j], with e = 1 iff i
-     * and j are adjacent:
+     * Neighbors, OptLex posted directly on the rows. For every pair i &lt; j with
+     * deg[i] = deg[j]: drop label j+1 from row i and label i+1 from row j (if found), then
+     * compare the two rows with Lex (first slot first), arguments swapped:
      * <pre>
-     *   list(j) minus label i+1  ≤lex  list(i) minus label j+1     (arguments swapped)
+     *   (M[j] without i+1)  ≤lex  (M[i] without j+1)
      * </pre>
      * Read left to right, the 0/1 rows first differ at the SMALLEST vertex w of
-     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). In the increasing lists the first
-     * difference is also at w, and the list holding w is the smaller one.
+     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). The rows list the neighbors
+     * increasing, so they first differ at w too, and the row holding w is the SMALLER one,
+     * hence the swap: the same order as {@link #addOptLexNei}.
      */
     private static void addOptLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         int n = deg.length;
         if (n < 3) return;
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
-                if (deg[i] != deg[j] || deg[i] == 0) continue;
-                IloIntExpr e = cp.count(M[i], j + 1);
-                int D = M[i].length;
-                IloIntExpr[] li = slots(M[i], D - deg[i], D), lj = slots(M[j], D - deg[j], D);
-                cp.add(cp.lexicographic(dropLabelAsc(cp, lj, i + 1, e, n), dropLabelAsc(cp, li, j + 1, e, n)));
+                if (deg[i] != deg[j]) continue;
+                IloIntExpr[] ri = dropForLex(cp, M[i], j + 1);      // row i without j+1
+                IloIntExpr[] rj = dropForLex(cp, M[j], i + 1);      // row j without i+1
+                cp.add(cp.lexicographic(rj, ri));
             }
         }
     }
 
     /**
-     * A decreasing neighbor list with {@code label} deleted only if e = 1 (label adjacent):
-     * every entry at or after the label moves one slot left, and a 0 enters at the end.
+     * For OptRevLex: the row without the slot p holding {@code label} (unchanged if the
+     * label is not in the row). Slots 0..p-1 move one slot right and a 0 enters slot 0, so
+     * the freed slot is the LAST one compared by RevLex. E.g. {@code 2 5 0 0} without 5 →
+     * {@code 0 2 0 0}.
      * <pre>
-     *   out[k] = L[k] + s_k · (L[k+1] − L[k]),   s_k = e · [L[k] ≤ label],   L[d] = 0
+     *   out[k] = row[k-1] if k ≤ p, else row[k]                   (row[-1] = 0)
+     *   [k ≤ p] = [row[k] = label] + ... + [row[D-1] = label]     (0 for all k if absent)
      * </pre>
+     * The test "slot k is at or before the label" is built directly as a count from the
+     * right instead of computing p as a number: same meaning, much better propagation.
      */
-    private static IloIntExpr[] dropLabel(IloCP cp, IloIntExpr[] L, int label, IloIntExpr e)
-            throws IloException {
-        int d = L.length;
-        IloIntExpr[] out = new IloIntExpr[d];
-        for (int k = 0; k < d; k++) {
-            IloIntExpr shift = cp.prod(e, cp.le(L[k], label));
-            IloIntExpr next = (k + 1 < d) ? L[k + 1] : cp.constant(0);
-            out[k] = cp.sum(L[k], cp.prod(shift, cp.diff(next, L[k])));
+    private static IloIntExpr[] dropForRevLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
+        int D = row.length;
+        IloIntExpr[] out = new IloIntExpr[D];
+        IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
+        for (int k = D - 1; k >= 0; k--) {
+            atOrBefore = cp.sum(atOrBefore, cp.eq(row[k], label));
+            IloIntExpr prev = (k > 0) ? row[k - 1] : cp.constant(0);
+            out[k] = cp.sum(row[k], cp.prod(atOrBefore, cp.diff(prev, row[k])));
         }
         return out;
     }
 
     /**
-     * An increasing neighbor list with {@code label} deleted only if e = 1: as
-     * {@link #dropLabel}, with s_k = e · [L[k] ≥ label] and the sentinel n+1 entering at
-     * the end (it is larger than every label, as 0 is smaller in the decreasing case).
+     * For OptLex: the row without the slot p holding {@code label} (unchanged if the label
+     * is not in the row). Slots p+1.. move one slot left and a 0 enters the last slot, so
+     * the freed slot is the LAST one compared by Lex. E.g. {@code 0 0 2 5} without 2 →
+     * {@code 0 0 5 0}.
+     * <pre>
+     *   out[k] = row[k+1] if k ≥ p, else row[k]                   (row[D] = 0)
+     *   [k ≥ p] = [row[0] = label] + ... + [row[k] = label]       (0 for all k if absent)
+     * </pre>
      */
-    private static IloIntExpr[] dropLabelAsc(IloCP cp, IloIntExpr[] L, int label, IloIntExpr e, int n)
-            throws IloException {
-        int d = L.length;
-        IloIntExpr[] out = new IloIntExpr[d];
-        for (int k = 0; k < d; k++) {
-            IloIntExpr shift = cp.prod(e, cp.ge(L[k], label));
-            IloIntExpr next = (k + 1 < d) ? L[k + 1] : cp.constant(n + 1);
-            out[k] = cp.sum(L[k], cp.prod(shift, cp.diff(next, L[k])));
+    private static IloIntExpr[] dropForLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
+        int D = row.length;
+        IloIntExpr[] out = new IloIntExpr[D];
+        IloIntExpr atOrAfter = cp.constant(0);    // [k ≥ p]
+        for (int k = 0; k < D; k++) {
+            atOrAfter = cp.sum(atOrAfter, cp.eq(row[k], label));
+            IloIntExpr next = (k + 1 < D) ? row[k + 1] : cp.constant(0);
+            out[k] = cp.sum(row[k], cp.prod(atOrAfter, cp.diff(next, row[k])));
         }
         return out;
     }
@@ -383,13 +393,6 @@ public class CpModels {
         for (int p = 0; p < row.length; p++) {
             if (p != i && p != j) out[k++] = row[p];
         }
-        return out;
-    }
-
-    /** The neighbor slots from..to-1 of a row (their position is fixed by the row layout). */
-    private static IloIntExpr[] slots(IloIntVar[] row, int from, int to) {
-        IloIntExpr[] out = new IloIntExpr[to - from];
-        for (int k = from; k < to; k++) out[k - from] = row[k];
         return out;
     }
 

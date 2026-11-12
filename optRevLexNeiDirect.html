@@ -60,7 +60,7 @@ ol li,ul li{margin:4px 0}
 posts Codish's OptLex symmetry breaking (reversed form) and the upper off-diagonal
 connectivity constraint directly on the neighbor lists <code>M</code>, without rebuilding
 0/1 adjacency rows: <code>addRevLexRows</code>, <code>addOptRevLexNeiDir</code>,
-<code>dropLabel</code> and <code>addLargestNeighborAbove</code>.</p>
+<code>dropForRevLex</code> and <code>addLargestNeighborAbove</code>.</p>
 
 <div class="card">
 <b>What changed in this version</b>
@@ -73,8 +73,10 @@ connectivity constraint directly on the neighbor lists <code>M</code>, without r
   constraint, and the fixed zeros replace the degree count.</li>
   <li>Symmetry breaking compares <b>only vertices of equal degree</b>: only they can swap
   labels when the degrees are fixed.</li>
-  <li><code>dropLabel</code> reads the <code>deg[i]</code> neighbor slots in reverse
-  (largest first) and deletes label j+1 <b>only if</b> j is a neighbor (e = 1).</li>
+  <li><b>Drop, then RevLex.</b> For each equal-degree pair, <code>dropForRevLex</code> removes
+  the slot holding j+1 from row i and the slot holding i+1 from row j (if found); the two
+  rows are then compared with RevLex. It works on the whole rows and needs no adjacency
+  indicator.</li>
   <li>Connectivity is <code>M[i][deg[i]-1] &gt; i+1</code> (last neighbor slot = largest
   neighbor), used by both <code>optRevLexNei</code> and <code>optRevLexNeiDir</code>. It is
   <b>correct for regular sequences only</b> (section 7).</li>
@@ -128,8 +130,8 @@ private static void addRevLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws I
   cells are <code>A[i][i]=0</code> and <code>A[i][j]</code>. From row <i>j</i>, they are
   <code>A[j][i]</code> and <code>A[j][j]=0</code>. What remains are the sets
   <div class="formula">S_i = N(i) \ {j}        S_j = N(j) \ {i}</div>
-  So: <b>remove label j from list i, and label i from list j</b>, but only when i and j are
-  adjacent; otherwise there is nothing to remove.</li>
+  So: <b>remove label j from list i, and label i from list j</b>, if they appear. They appear
+  in both lists or in neither (the graph is undirected).</li>
   <li><b>The right-to-left 0/1 order is a "largest difference" rule.</b> Reading right to left,
   the first column where the rows differ is the <i>largest</i> element of
   S<sub>i</sub> Δ S<sub>j</sub>. Row i ≤ row j iff the sets are equal or that element is in
@@ -140,11 +142,11 @@ private static void addRevLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws I
   0 is smaller than every label, so the padding never decides wrongly. Both lists have the
   same length, because deg[i] = deg[j].</li>
 </ol>
-<p>Conclusion: for every <i>i</i> &lt; <i>j</i> with deg[i] = deg[j],</p>
-<div class="formula">dec(N(i) − label j+1)   ≤lex   dec(N(j) − label i+1)</div>
-<p>The stored neighbor slots are increasing, so the decreasing list is just those slots
-read backwards (<code>reverse</code>). The only work left is deleting one label with a
-fixed number of slots, and that is what <code>dropLabel</code> does.</p>
+<p>Conclusion: for every <i>i</i> &lt; <i>j</i> with deg[i] = deg[j], drop then compare:</p>
+<div class="formula">reverse(M[i] without j+1)   ≤lex   reverse(M[j] without i+1)</div>
+<p>The rows list the neighbors increasing, so reading them from the last slot
+(<code>reverse</code>) gives the decreasing lists of point 3. The fixed zeros are in the same
+slots of both rows (equal degrees), so they never decide.</p>
 
 <h2>4. <code>addOptRevLexNeiDir</code></h2>
 <pre><code>private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
@@ -152,59 +154,64 @@ fixed number of slots, and that is what <code>dropLabel</code> does.</p>
     if (n &lt; 3) return;
     for (int i = 0; i &lt; n; i++) {
         for (int j = i + 1; j &lt; n; j++) {
-            if (deg[i] != deg[j] || deg[i] == 0) continue;
-            IloIntExpr e = cp.count(M[i], j + 1);   // = count(M[j], i+1), by symmetry
-            // decreasing lists: the increasing neighbor slots 0..deg-1, reversed
-            IloIntExpr[] li = reverse(slots(M[i], 0, deg[i])), lj = reverse(slots(M[j], 0, deg[j]));
-            cp.add(cp.lexicographic(dropLabel(cp, li, j + 1, e), dropLabel(cp, lj, i + 1, e)));
+            if (deg[i] != deg[j]) continue;
+            IloIntExpr[] ri = dropForRevLex(cp, M[i], j + 1);   // row i without j+1
+            IloIntExpr[] rj = dropForRevLex(cp, M[j], i + 1);   // row j without i+1
+            cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
         }
     }
 }</code></pre>
 <ul>
   <li><b>Indices vs labels.</b> Vertices are 0-based in the code (<code>i</code>,
   <code>j</code>), labels stored in <code>M</code> are 1-based: vertex <code>j</code> appears
-  in a list as <code>j + 1</code>.</li>
-  <li><b>Equal degrees only.</b> Pairs of different degrees are skipped (section 1). Pairs of
-  degree 0 are skipped too: both lists are empty, so there is nothing to compare.</li>
-  <li><b>Only the neighbor slots.</b> <code>slots(M[i], 0, deg[i])</code> takes the
-  <code>deg[i]</code> neighbor slots; the trailing zeros are the same in both rows and are
-  left out.</li>
-  <li><b>One <code>e</code> per pair.</b> <code>e</code> is 1 iff <i>j</i> is in the list of
-  <i>i</i>; the graph is undirected, so it is also 1 iff <i>i</i> is in the list of <i>j</i>.
-  Both deletions share it.</li>
-  <li><b>Size.</b> At most n(n−1)/2 pairs, each building 2·deg expressions. No new decision
+  in a row as <code>j + 1</code>.</li>
+  <li><b>Equal degrees only.</b> Pairs of different degrees are skipped (section 1).</li>
+  <li><b>Drop, then RevLex.</b> Each row loses the slot of the other vertex, if found; then
+  <code>cp.lexicographic</code> on the reversed rows compares them from the last slot.</li>
+  <li><b>Size.</b> At most n(n−1)/2 pairs, each building 2·D expressions. No new decision
   variables are created.</li>
 </ul>
 
-<h2>5. <code>dropLabel</code></h2>
-<pre><code>private static IloIntExpr[] dropLabel(IloCP cp, IloIntExpr[] L, int label, IloIntExpr e)
-        throws IloException {
-    int d = L.length;
-    IloIntExpr[] out = new IloIntExpr[d];
-    for (int k = 0; k &lt; d; k++) {
-        IloIntExpr shift = cp.prod(e, cp.le(L[k], label));
-        IloIntExpr next = (k + 1 &lt; d) ? L[k + 1] : cp.constant(0);
-        out[k] = cp.sum(L[k], cp.prod(shift, cp.diff(next, L[k])));
+<h2>5. <code>dropForRevLex</code></h2>
+<pre><code>private static IloIntExpr[] dropForRevLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
+    int D = row.length;
+    IloIntExpr[] out = new IloIntExpr[D];
+    IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
+    for (int k = D - 1; k &gt;= 0; k--) {
+        atOrBefore = cp.sum(atOrBefore, cp.eq(row[k], label));
+        IloIntExpr prev = (k &gt; 0) ? row[k - 1] : cp.constant(0);
+        out[k] = cp.sum(row[k], cp.prod(atOrBefore, cp.diff(prev, row[k])));
     }
     return out;
 }</code></pre>
-<p>A CP model can't delete an element at an unknown position, so <code>dropLabel</code>
-builds each output slot as an expression:</p>
-<div class="formula">out[k] = L[k] + s<sub>k</sub> · (L[k+1] − L[k])      s<sub>k</sub> = e · [L[k] ≤ label]      L[d] = 0</div>
-<p>This reads as: <b>if s<sub>k</sub> = 1, take the next slot L[k+1]; otherwise keep
-L[k].</b></p>
+<p>Let p be the slot of the label in the row. A CP array has a fixed length and p is not
+known while the solver searches, so the slot can't be removed directly. Instead every output
+slot says which input slot it takes:</p>
+<div class="formula">out[k] = row[k−1]  if k ≤ p,   else row[k]        (row[−1] = 0)</div>
+<p>The slots before p move one step right and a 0 enters slot 0. Example:
+<code>2 5 0 0</code> without 5 (p = 1) → <code>0 2 0 0</code>.</p>
 
-<h3>Why <code>s<sub>k</sub> = e · [L[k] ≤ label]</code> is the right test</h3>
+<h3>How the test [k ≤ p] is built</h3>
 <ul>
-  <li>L is <b>decreasing</b>. If the label is in the list (e = 1), everything before it is
-  larger, and the label and everything after it are ≤ label. So
-  <code>L[k] ≤ label</code> means "the label is at slot k or earlier", which is exactly the
-  set of slots that move one step left. A 0 enters at the end.</li>
-  <li>If the label is <b>not</b> in the list (e = 0), nothing moves: s<sub>k</sub> = 0 for all
-  k and the output is L itself. Only an adjacent label is ever deleted.</li>
-  <li><code>cp.le(L[k], label)</code> is a constraint, but in CP Optimizer a constraint is
-  also a 0/1 expression (<code>IloConstraint extends IloIntExpr</code>), so it can be
-  multiplied.</li>
+  <li><b>A count from the right.</b> <code>[row[k] = label] + … + [row[D−1] = label]</code> is
+  0 after the label and 1 from the label down to slot 0: exactly [k ≤ p]. A label appears at
+  most once in a row (strict order).</li>
+  <li><b>If not found.</b> Every term is 0, so the row is unchanged: no adjacency indicator
+  is needed. i and j are adjacent in both rows or in neither, so both rows lose a slot or
+  neither does.</li>
+  <li><b>Why not compute p as a number.</b> <code>p = Σ (k+1)·[row[k] = label] − 1</code> and
+  then <code>[k ≤ p]</code> gives the same solutions, but propagates worse: 20.5 s instead of
+  15.0 s on 4-regular graphs with n = 12 (76 s instead of 39 s for OptLex).</li>
+  <li><b>Why the 0 enters at the front.</b> RevLex compares from the last slot, so the freed
+  slot must be at the front: it is then the last slot compared, and it is in the same place
+  in both rows. Shifting the other way (0 at the end) gives the same solutions but the
+  freed slot is compared first, and the run takes 104.9 s instead of 15.0 s.</li>
+  <li><b>OptLex</b> (<code>dropForLex</code>) is the mirror image: Lex compares from the first
+  slot, so the slots after p move left and the 0 enters at the end, with
+  [k ≥ p] counted from the left.</li>
+  <li><code>cp.eq(row[k], label)</code> is a constraint, but in CP Optimizer a constraint is
+  also a 0/1 expression (<code>IloConstraint extends IloIntExpr</code>), so it can be summed
+  and multiplied.</li>
 </ul>
 
 <h2>6. Worked example (n = 5, deg = [1, 1, 2, 2, 2])</h2>
@@ -221,38 +228,40 @@ L[k].</b></p>
 <p class="muted">The last column is the connectivity test of section 7. Equal-degree pairs:
 (1, 2), (3, 4), (3, 5), (4, 5).</p>
 
-<h3>Pair (3, 4): adjacent, e = 1</h3>
-<p><code>dropLabel</code> on list 3 = reverse(1 4) = <code>4 1</code>, label 4:</p>
+<h3>Pair (3, 4): adjacent</h3>
+<p><code>dropForRevLex</code> on row 3 = <code>1 4</code>, label 4 (p = 1), slots from the right:</p>
 <div class="tbl"><table>
-<tr><th>k</th><th>L[k]</th><th>L[k] ≤ 4?</th><th>s<sub>k</sub></th><th>out[k]</th></tr>
-<tr class="hl"><td>0</td><td>4</td><td>yes</td><td>1</td><td>L[1] = 1</td></tr>
-<tr class="hl"><td>1</td><td>1</td><td>yes</td><td>1</td><td>L[2] = 0</td></tr>
+<tr><th>k</th><th>row[k]</th><th>row[k] = 4?</th><th>[k ≤ p]</th><th>out[k]</th></tr>
+<tr class="hl"><td>1</td><td>4</td><td>yes</td><td>1</td><td>row[0] = 1</td></tr>
+<tr class="hl"><td>0</td><td>1</td><td>no</td><td>1</td><td>row[−1] = 0</td></tr>
 </table></div>
-<p>Result <code>1 0</code> = {1} = N(3) \ {4}. ✓</p>
-<p><code>dropLabel</code> on list 4 = reverse(3 5) = <code>5 3</code>, label 3:</p>
+<p>Result <code>0 1</code>: N(3) \ {4} = {1}. ✓</p>
+<p><code>dropForRevLex</code> on row 4 = <code>3 5</code>, label 3 (p = 0):</p>
 <div class="tbl"><table>
-<tr><th>k</th><th>L[k]</th><th>L[k] ≤ 3?</th><th>s<sub>k</sub></th><th>out[k]</th></tr>
-<tr><td>0</td><td>5</td><td>no</td><td>0</td><td>L[0] = 5</td></tr>
-<tr class="hl"><td>1</td><td>3</td><td>yes</td><td>1</td><td>L[2] = 0</td></tr>
+<tr><th>k</th><th>row[k]</th><th>row[k] = 3?</th><th>[k ≤ p]</th><th>out[k]</th></tr>
+<tr><td>1</td><td>5</td><td>no</td><td>0</td><td>row[1] = 5</td></tr>
+<tr class="hl"><td>0</td><td>3</td><td>yes</td><td>1</td><td>row[−1] = 0</td></tr>
 </table></div>
-<p>Result <code>5 0</code> = {5} = N(4) \ {3}. ✓</p>
-<p>Comparison: <code>1 0 ≤lex 5 0</code>: <span class="ok">satisfied</span>.</p>
+<p>Result <code>0 5</code>: N(4) \ {3} = {5}. ✓</p>
+<p>RevLex: reverse(0 1) = <code>1 0</code> ≤lex reverse(0 5) = <code>5 0</code>:
+<span class="ok">satisfied</span>.</p>
 <p class="muted">Check with the 0/1 rows: remaining columns {1, 2, 5}. Row 3 = (1, 0, 0),
 row 4 = (0, 0, 1). Read right to left, column 5 decides, 0 &lt; 1:
 <span class="ok">satisfied</span> as well.</p>
 
-<h3>Pair (4, 5): adjacent, e = 1</h3>
-<p>List 4 = <code>5 3</code> minus label 5 → <code>3 0</code>. List 5 = <code>4 2</code>
-minus label 4 → <code>2 0</code>. Comparison <code>3 0 ≤lex 2 0</code>: 3 &gt; 2, so it is
+<h3>Pair (4, 5): adjacent</h3>
+<p>Row 4 = <code>3 5</code> without 5 → <code>0 3</code>. Row 5 = <code>2 4</code>
+without 4 → <code>0 2</code>. RevLex: <code>3 0 ≤lex 2 0</code>? 3 &gt; 2, so it is
 <span class="bad">violated</span>, and this labelling is pruned: the same path, with
 vertices 4 and 5 swapped, is kept instead.</p>
 <p class="muted">0/1 check over columns {1, 2, 3}: row 4 = (0, 0, 1), row 5 = (0, 1, 0).
 Right to left, column 3 decides, 1 &gt; 0: <span class="bad">violated</span>. The two forms
 agree.</p>
 
-<h3>Pair (1, 2): not adjacent, e = 0</h3>
-<p>Nothing is deleted: <code>3 ≤lex 5</code>, <span class="ok">satisfied</span>. 0/1 check
-over columns {3, 4, 5}: (1, 0, 0) vs (0, 0, 1), right to left column 5 decides, 0 &lt; 1:
+<h3>Pair (1, 2): not adjacent</h3>
+<p>Nothing is found, nothing is dropped: rows <code>3 0</code> and <code>5 0</code>.
+RevLex: <code>0 3 ≤lex 0 5</code>, <span class="ok">satisfied</span>. 0/1 check over
+columns {3, 4, 5}: (1, 0, 0) vs (0, 0, 1), right to left column 5 decides, 0 &lt; 1:
 <span class="ok">satisfied</span>.</p>
 
 <h2>7. Upper off-diagonal connectivity on the lists</h2>
@@ -315,7 +324,7 @@ slot.</p>
 (<code>row[k] · [row[k] ≠ j+1]</code>) instead of deleting it. The 0 then stays in the
 middle of the list, so two lists are compared slot by slot at shifted positions. Tested, it
 lost graphs in 56 of the 72 graphic sequences with n ≤ 6, even the 5-cycle (0 solutions
-instead of 1). <code>dropLabel</code> finds exactly the same solutions as
+instead of 1). <code>dropForRevLex</code> finds exactly the same solutions as
 <code>addOptRevLexNei</code>.</p>
 
 <h2>9. Try it</h2>
@@ -334,43 +343,43 @@ instead of 1). <code>dropLabel</code> finds exactly the same solutions as
   function render(){
     const n = parseInt($("n").value, 10), D = parseInt($("D").value, 10);
     const lab = parseInt($("lab").value, 10), vx = parseInt($("vx").value, 10);
-    const out = $("out");
+    const outEl = $("out");
     const nb = $("nb").value.trim() === "" ? [] :
       $("nb").value.split(/[\s,]+/).filter(Boolean).map(Number);
     if (!(n >= 2) || !(D >= 1) || !(vx >= 1 && vx <= n) ||
         nb.some(x => !Number.isInteger(x) || x < 1 || x > n || x === vx) ||
         new Set(nb).size !== nb.length || nb.length > D ||
         !(lab >= 1 && lab <= n) || lab === vx) {
-      out.innerHTML = '<p class="err">Enter n ≥ 2, D ≥ 1, a vertex in 1..n, at most D distinct ' +
+      outEl.innerHTML = '<p class="err">Enter n ≥ 2, D ≥ 1, a vertex in 1..n, at most D distinct ' +
         'neighbor labels in 1..n other than the vertex, and a label to drop other than the vertex.</p>';
       return;
     }
     const deg = nb.length;
     const inc = nb.slice().sort((a, b) => a - b);
     const row = inc.concat(Array(D - deg).fill(0));        // stored row: 2 5 0 0 layout
-    const L = inc.slice().reverse();                        // decreasing list given to dropLabel
-    const e = inc.includes(lab) ? 1 : 0;
-    let rows = "", res = [];
-    for (let k = 0; k < deg; k++) {
-      const le = L[k] <= lab, s = e && le ? 1 : 0;
-      const next = k + 1 < deg ? L[k + 1] : 0, v = s ? next : L[k];
-      res.push(v);
-      rows += `<tr${s ? ' class="hl"' : ""}><td>${k}</td><td>${L[k]}</td>` +
-        `<td>${le ? "yes" : "no"}</td><td>${s}</td><td>${s ? `L[${k + 1}] = ${v}` : `L[${k}] = ${v}`}</td></tr>`;
+    const found = inc.includes(lab);
+    const out = Array(D);
+    let rows = "", t = 0;
+    for (let k = D - 1; k >= 0; k--) {                      // count from the right: [k <= p]
+      const eq = row[k] === lab;
+      t += eq ? 1 : 0;
+      const prev = k > 0 ? row[k - 1] : 0, v = t ? prev : row[k];
+      out[k] = v;
+      rows += `<tr${t ? ' class="hl"' : ""}><td>${k}</td><td>${row[k]}</td>` +
+        `<td>${eq ? "yes" : "no"}</td><td>${t}</td><td>${t ? `row[${k - 1}] = ${v}` : `row[${k}] = ${v}`}</td></tr>`;
     }
     const top = deg > 0 ? inc[deg - 1] : 0;
     const con = vx === n
       ? `<span class="muted">not posted for the last vertex</span>`
       : (top > vx ? `<span class="ok">M[${vx}][${Math.max(deg - 1, 0)}] = ${top} &gt; ${vx}: satisfied</span>`
                   : `<span class="bad">M[${vx}][${Math.max(deg - 1, 0)}] = ${top} &gt; ${vx}: violated</span>`);
-    out.innerHTML =
+    outEl.innerHTML =
       `<p>Stored row M[${vx}] = <code>${row.join(" ")}</code> (deg = ${deg}: neighbors increasing, then zeros) · ` +
-      `list for dropLabel = <code>${L.join(" ") || "(empty)"}</code> · ` +
-      `e = ${e} (label ${lab} ${e ? "is" : "is not"} a neighbor)</p>` +
-      (deg === 0 ? "<p class=\"muted\">Degree 0: the pair is skipped.</p>" :
-      `<div class="tbl"><table><tr><th>k</th><th>L[k]</th><th>L[k] ≤ ${lab}?</th>` +
-      `<th>s<sub>k</sub></th><th>out[k]</th></tr>${rows}</table></div>` +
-      `<p>dropLabel = <code>${res.join(" ")}</code></p>`) +
+      `label ${lab} ${found ? "found at slot " + row.indexOf(lab) : "not found: nothing is dropped"}</p>` +
+      `<div class="tbl"><table><tr><th>k</th><th>row[k]</th><th>row[k] = ${lab}?</th>` +
+      `<th>[k ≤ p]</th><th>out[k]</th></tr>${rows}</table></div>` +
+      `<p>dropForRevLex = <code>${out.join(" ")}</code> · compared by RevLex as ` +
+      `<code>${out.slice().reverse().join(" ")}</code></p>` +
       `<p>Connectivity: ${con}</p>`;
   }
   ["n", "D", "vx", "nb", "lab"].forEach(id => $(id).addEventListener("input", render));
