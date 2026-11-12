@@ -5,687 +5,398 @@ import ilog.concert.IloIntExpr;
 import ilog.concert.IloIntVar;
 import ilog.cp.IloCP;
 
-import java.util.Arrays;
-
 /**
- * CP Optimizer models that enumerate the graphs on n vertices: all of them, or only the
- * d-regular ones when a degree d is fixed (see {@link #ANY_DEGREE}).
+ * CP Optimizer models that enumerate, up to isomorphism, the graphs with a given degree
+ * sequence {@code deg} (vertex i has degree deg[i], n = deg.length, increasing order).
  *
- * <p>Two encodings of the same graph are compared:
+ * <p>Two encodings of a graph:
  * <ul>
- *   <li><b>Adjacency model</b> ({@code *Adj}): an n×n 0/1 matrix, {@code M[i][j] = 1}
- *       iff vertices i and j are adjacent.</li>
- *   <li><b>Neighbors model</b> ({@code *Nei}): row i lists the neighbors of vertex i
- *       as 1-based labels: an n×(n-1) matrix, empty slots hold 0. Rows are sorted as
- *       part of the symmetry breaking: increasing with zeros first for OptLex, decreasing
- *       with zeros last for OptRevLex (see {@link #addOrderedRows}).</li>
+ *   <li><b>Adjacency</b>: an n×n 0/1 matrix, {@code M[i][j] = 1} iff i and j are adjacent.</li>
+ *   <li><b>Neighbors</b>: an n×D matrix (D = largest degree); row i lists the neighbors of
+ *       vertex i as labels 1..n, empty slots hold 0. The neighbors are listed increasing,
+ *       after the zeros for OptLex ({@code 0 0 2 5}), before them for OptRevLex
+ *       ({@code 2 5 0 0}).</li>
  * </ul>
  *
- * <p>Each encoding is combined with OptRevLex symmetry breaking, and optionally
- * (a {@code connectivity} flag) with the upper off-diagonal connectivity constraint,
- * which restricts the search to connected graphs. Every public
- * {@code test*} method builds one configuration, enumerates all its solutions and
- * returns the search statistics.
+ * <p>The file has three layers:
+ * <ol>
+ *   <li><b>Models</b>: one public method per configuration (one table column). Each one
+ *       builds a base model, posts its constraints and solves.</li>
+ *   <li><b>Base models</b>: the variables of a graph with the given degrees.</li>
+ *   <li><b>Constraints</b>: one method per symmetry-breaking or connectivity constraint.</li>
+ * </ol>
  */
 public class CpModels {
 
-    /** How a solution encodes its graph: an n×n 0/1 matrix, or n rows of neighbor labels. */
-    public enum Encoding { ADJACENCY, NEIGHBORS }
-
-    /** Degree value meaning "no degree constraint": enumerate all graphs on n vertices. */
-    public static final int ANY_DEGREE = -1;
-
     // =========================================================================
-    //  SOLVER CONFIGURATION
+    //  MODELS  (one per table column)
     // =========================================================================
 
-    /** Shared solver configuration applied to every model, so runs are comparable. */
-    private static void configureSolver(IloCP cp) throws IloException {
-        cp.setParameter(IloCP.IntParam.LogVerbosity,          IloCP.ParameterValues.Quiet);
-        cp.setParameter(IloCP.IntParam.SearchType,            IloCP.ParameterValues.DepthFirst);
-        cp.setParameter(IloCP.IntParam.DefaultInferenceLevel, IloCP.ParameterValues.Low);
-        cp.setParameter(IloCP.IntParam.MemoryDisplay,         0);
+    /** Adjacency matrix + OptLex. */
+    public static Result optLexAdj(int[] deg, String title) throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildAdjacencyModel(cp, deg);
+        addOptLex(cp, M, deg);
+        return solve(cp, M, false, title);
+    }
+
+    /** Neighbor lists + OptLex on the 0/1 rows rebuilt from the lists. */
+    public static Result optLexNei(int[] deg, String title) throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildNeighborsModel(cp, deg);
+        addLexRows(cp, M, deg);
+        addOptLexNei(cp, M, deg);
+        return solve(cp, M, true, title);
+    }
+
+    /** Neighbor lists + OptLex posted directly on the lists ({@link #addOptLexNeiDir}). */
+    public static Result optLexNeiDir(int[] deg, String title) throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildNeighborsModel(cp, deg);
+        addLexRows(cp, M, deg);
+        addOptLexNeiDir(cp, M, deg);
+        return solve(cp, M, true, title);
+    }
+
+    /** Adjacency matrix + OptRevLex, optionally connected graphs only. */
+    public static Result optRevLexAdj(int[] deg, boolean connectivity, String title)
+            throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildAdjacencyModel(cp, deg);
+        addOptRevLex(cp, M, deg);
+        if (connectivity) addUpperOffDiagonal(cp, M);
+        return solve(cp, M, false, title);
+    }
+
+    /** Neighbor lists + OptRevLex on the rebuilt 0/1 rows, optionally connected graphs only. */
+    public static Result optRevLexNei(int[] deg, boolean connectivity, String title)
+            throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildNeighborsModel(cp, deg);
+        addRevLexRows(cp, M, deg);
+        addOptRevLexNei(cp, M, deg);
+        if (connectivity) addLargestNeighborAbove(cp, M, deg);
+        return solve(cp, M, true, title);
+    }
+
+    /**
+     * Neighbor lists + OptRevLex posted directly on the lists ({@link #addOptRevLexNeiDir}),
+     * optionally connected graphs only.
+     */
+    public static Result optRevLexNeiDir(int[] deg, boolean connectivity, String title)
+            throws IloException {
+        IloCP cp = new IloCP();
+        IloIntVar[][] M = buildNeighborsModel(cp, deg);
+        addRevLexRows(cp, M, deg);
+        addOptRevLexNeiDir(cp, M, deg);
+        if (connectivity) addLargestNeighborAbove(cp, M, deg);
+        return solve(cp, M, true, title);
     }
 
     // =========================================================================
     //  BASE MODELS
     // =========================================================================
 
-    /**
-     * Adjacency model: creates the n×n binary matrix and posts the structural
-     * constraints of a simple undirected graph:
-     * <ol>
-     *   <li>Zero diagonal (no self-loops)</li>
-     *   <li>Degree: every row sums to d (only when d is fixed)</li>
-     *   <li>Symmetry: {@code M[i][j] == M[j][i]} (undirected graph)</li>
-     * </ol>
-     *
-     * @param cp the CP solver instance
-     * @param N  number of vertices
-     * @param d  degree of every vertex, or {@link #ANY_DEGREE}
-     * @return the n×n matrix of decision variables
-     */
-    private static IloIntVar[][] buildBaseModelAdj(IloCP cp, int N, int d)
-            throws IloException {
-        IloIntVar[][] M = new IloIntVar[N][];
-        for (int i = 0; i < N; i++) {
-            M[i] = cp.intVarArray(N, 0, 1);
+    /** n×n 0/1 matrix: zero diagonal, row i sums to deg[i], symmetric. */
+    private static IloIntVar[][] buildAdjacencyModel(IloCP cp, int[] deg) throws IloException {
+        int n = deg.length;
+        IloIntVar[][] M = new IloIntVar[n][];
+        for (int i = 0; i < n; i++) {
+            M[i] = cp.intVarArray(n, 0, 1);
+            cp.add(cp.eq(M[i][i], 0));              // no self-loop
+            cp.addEq(cp.sum(M[i]), deg[i]);         // degree
         }
-
-        // 1. Zero diagonal
-        for (int i = 0; i < N; i++) {
-            cp.add(cp.eq(M[i][i], 0));
-        }
-
-        // 2. Degree of every vertex (only when d is fixed)
-        if (d != ANY_DEGREE) {
-            for (int i = 0; i < N; i++) {
-                cp.addEq(cp.sum(M[i]), d);
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                cp.add(cp.eq(M[i][j], M[j][i]));    // undirected
             }
         }
-
-        // 3. Symmetry (only the upper triangle is needed)
-        for (int i = 0; i < N; i++) {
-            for (int j = i + 1; j < N; j++) {
-                cp.add(cp.eq(M[i][j], M[j][i]));
-            }
-        }
-
         return M;
     }
 
     /**
-     * Neighbors model: an n×(n-1) matrix, row i holds the neighbors of vertex i as
-     * 1-based labels in {1..n}. n-1 is the maximum degree; unused slots hold 0, e.g.
-     * {@code 0 0 2 5} (OptLex) or {@code 5 2 0 0} (OptRevLex) = neighbors {2, 5}. Posted constraints:
-     * <ol>
-     *   <li>No self-loop: vertex i (label i+1) never lists itself</li>
-     *   <li>All different except 0: a neighbor is listed at most once per row</li>
-     *   <li>Degree: exactly d non-zero slots per row (only when d is fixed)</li>
-     *   <li>Symmetry: v is a neighbor of u iff u is a neighbor of v</li>
-     * </ol>
-     * Like the adjacency base model, this one only describes the graph: the order of the
-     * slots inside a row is left free here and fixed by the symmetry breaking
-     * ({@link #addOrderedRows}, posted with every OptLex / OptRevLex variant).
-     *
-     * @param cp the CP solver instance
-     * @param N  number of vertices
-     * @param d  degree of every vertex, or {@link #ANY_DEGREE}
-     * @return the n×(n-1) matrix of decision variables
+     * n×D matrix of neighbor labels 1..n (D = largest degree, 0 = empty slot): no
+     * self-loop, and v is a neighbor of u iff u is a neighbor of v. Where the zeros sit and
+     * in which order the neighbors are listed is the row layout, posted right after by
+     * {@link #addLexRows} or {@link #addRevLexRows}; the layout also fixes the degree and
+     * forbids a repeated neighbor (simple graph).
      */
-    private static IloIntVar[][] buildBaseModelNei(IloCP cp, int N, int d)
-            throws IloException {
-        int D = N - 1;   // slots per row = maximum degree
+    private static IloIntVar[][] buildNeighborsModel(IloCP cp, int[] deg) throws IloException {
+        int n = deg.length;
+        int D = 1;
+        for (int d : deg) D = Math.max(D, d);
 
-        IloIntVar[][] M = new IloIntVar[N][];
-        for (int i = 0; i < N; i++) {
-            M[i] = cp.intVarArray(D, 0, N);   // 0 = empty slot
-
-            // 1. No self-loop
-            for (int j = 0; j < D; j++) {
-                cp.add(cp.neq(M[i][j], i + 1));
-            }
-
-            // 2. All different except 0: an empty slot j is mapped to the distinct
-            //    value -(j+1), so only the neighbor labels must differ
-            IloIntExpr[] distinct = new IloIntExpr[D];
-            for (int j = 0; j < D; j++) {
-                distinct[j] = cp.diff(M[i][j], cp.prod(j + 1, cp.eq(M[i][j], 0)));
-            }
-            cp.add(cp.allDiff(distinct));
-
-            // 3. Degree: d neighbors = N-1-d empty slots (only when d is fixed)
-            if (d != ANY_DEGREE) {
-                cp.add(cp.eq(cp.count(M[i], 0), D - d));
+        IloIntVar[][] M = new IloIntVar[n][];
+        for (int i = 0; i < n; i++) {
+            M[i] = cp.intVarArray(D, 0, n);
+            for (int k = 0; k < D; k++) cp.add(cp.neq(M[i][k], i + 1));   // no self-loop
+        }
+        for (int u = 0; u < n; u++) {
+            for (int v = u + 1; v < n; v++) {
+                cp.add(cp.eq(cp.count(M[u], v + 1), cp.count(M[v], u + 1)));   // undirected
             }
         }
-
-        // 4. Symmetry: count(v in N(u)) == count(u in N(v)), each count being 0 or 1
-        //    (padding zeros never match, since labels are >= 1)
-        for (int u = 0; u < N; u++) {
-            for (int v = u + 1; v < N; v++) {
-                cp.add(cp.eq(
-                        cp.count(M[u], v + 1),
-                        cp.count(M[v], u + 1)));
-            }
-        }
-
         return M;
     }
 
-
-
     // =========================================================================
-    //  SYMMETRY BREAKING  (ordered rows, posted with OptLex and OptRevLex)
+    //  CONSTRAINTS: row layout of the neighbor lists (simple graph)
+    //  The zeros are fixed by position and the neighbors strictly ordered, so row i
+    //  holds exactly deg[i] distinct neighbors: no degree count, no all-different.
     // =========================================================================
 
-    /**
-     * Neighbors model: breaks the symmetry between the slots of a row, so every neighbor
-     * set has a single row, sorted in the same direction as the order between rows:
-     * <ul>
-     *   <li>{@code descending = false} (OptLex, columns read left to right, "&lt;="):
-     *       0 is the smallest value, so the zeros come first, then the neighbors
-     *       increasing, e.g. {@code 0 0 2 5}.</li>
-     *   <li>{@code descending = true} (OptRevLex, columns read right to left, "&gt;="):
-     *       the neighbors come first, decreasing, then the zeros, e.g. {@code 5 2 0 0}.</li>
-     * </ul>
-     * The order is not strict, so the zeros may repeat; the neighbors are still strictly
-     * ordered because the base model makes them all different (all different except 0).
-     * Required by the OptLex / OptRevLex Nei variants (the *Direct ones read the rows as
-     * sorted lists) and by {@link #addOffDiagNeiDirectConnectivity}.
-     */
-    private static void addOrderedRows(IloCP cp, IloIntVar[][] M, boolean descending)
-            throws IloException {
-        for (IloIntVar[] row : M) {
-            for (int j = 0; j < row.length - 1; j++) {
-                cp.add(descending
-                        ? cp.ge(row[j], row[j + 1])
-                        : cp.le(row[j], row[j + 1]));
-            }
+    /** OptLex layout: slots 0..D-deg[i]-1 are 0, then the neighbors strictly increasing: {@code 0 0 2 5}. */
+    private static void addLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        for (int i = 0; i < M.length; i++) {
+            int D = M[i].length, first = D - deg[i];   // first neighbor slot
+            for (int k = 0; k < first; k++) cp.add(cp.eq(M[i][k], 0));
+            if (deg[i] > 0) cp.add(cp.ge(M[i][first], 1));
+            for (int k = first; k + 1 < D; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
+        }
+    }
+
+    /** OptRevLex layout: the neighbors strictly increasing in slots 0..deg[i]-1, then 0: {@code 2 5 0 0}. */
+    private static void addRevLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        for (int i = 0; i < M.length; i++) {
+            int D = M[i].length, last = deg[i] - 1;    // last neighbor slot
+            for (int k = deg[i]; k < D; k++) cp.add(cp.eq(M[i][k], 0));
+            if (deg[i] > 0) cp.add(cp.ge(M[i][0], 1));
+            for (int k = 0; k < last; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
         }
     }
 
     // =========================================================================
-    //  SYMMETRY BREAKING  (OptRevLex)
+    //  CONSTRAINTS: symmetry breaking
+    //  Posted only for pairs i < j with deg[i] = deg[j]: only vertices of equal
+    //  degree can be swapped, comparing other pairs would lose graphs.
     // =========================================================================
 
-    /**
-     * Adjacency model, OptRevLex: for every pair of rows i &lt; j, row i is
-     * lexicographically ≤ row j when columns i and j are removed and the
-     * remaining columns are read right-to-left (right-most column most significant).
-     */
-    private static void addOptRevLex(IloCP cp, IloIntVar[][] M) throws IloException {
-        int N = M.length;
-        if (N < 3) return;   // with columns i and j removed nothing is left to compare
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                cp.add(cp.lexicographic(
-                        reverse(arrayNew(M[i], i, j)),
-                        reverse(arrayNew(M[j], i, j))));
+    /** Adjacency, OptLex: row i ≤lex row j, columns i and j removed, read left to right. */
+    private static void addOptLex(IloCP cp, IloIntExpr[][] A, int[] deg) throws IloException {
+        int n = deg.length;
+        if (n < 3) return;   // nothing left once columns i and j are removed
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (deg[i] != deg[j]) continue;
+                cp.add(cp.lexicographic(without(A[i], i, j), without(A[j], i, j)));
             }
         }
     }
 
-    /**
-     * Neighbors model, OptRevLex: same ordering as {@link #addOptRevLex}, posted on
-     * the 0/1 adjacency rows rebuilt as expressions over the neighbor lists
-     * ({@code C[i][v] = count(M[i], v+1)}), with no extra variables or channeling.
-     */
-    private static void addOptRevLexNei(IloCP cp, IloIntVar[][] M, int N)
-            throws IloException {
-        // C[i][v] == 1  <=>  (v+1) is a neighbor of i
-        IloIntExpr[][] C = new IloIntExpr[N][N];
-        for (int i = 0; i < N; i++) {
-            for (int v = 0; v < N; v++) {
-                C[i][v] = (v == i) ? cp.constant(0) : cp.count(M[i], v + 1);
-            }
-        }
-
-        if (N < 3) return;   // with columns i and j removed nothing is left to compare
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                // Compare rows i and j with columns i and j excluded,
-                // right-most column most significant (hence reverse).
-                cp.add(cp.lexicographic(
-                        reverse(arrayNew(C[i], i, j)),
-                        reverse(arrayNew(C[j], i, j)))
-                );
+    /** Adjacency, OptRevLex: as {@link #addOptLex}, rows read right to left. */
+    private static void addOptRevLex(IloCP cp, IloIntExpr[][] A, int[] deg) throws IloException {
+        int n = deg.length;
+        if (n < 3) return;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (deg[i] != deg[j]) continue;
+                cp.add(cp.lexicographic(reverse(without(A[i], i, j)), reverse(without(A[j], i, j))));
             }
         }
     }
 
+    /** Neighbors, OptLex: {@link #addOptLex} on the 0/1 rows rebuilt from the lists. */
+    private static void addOptLexNei(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        addOptLex(cp, adjacencyOf(cp, M), deg);
+    }
+
+    /** Neighbors, OptRevLex: {@link #addOptRevLex} on the 0/1 rows rebuilt from the lists. */
+    private static void addOptRevLexNei(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        addOptRevLex(cp, adjacencyOf(cp, M), deg);
+    }
+
     /**
-     * Neighbors model, OptRevLex posted directly on the neighbor lists (no 0/1 rows).
-     * Same constraint as {@link #addOptRevLexNei}: for every pair i &lt; j,
+     * Neighbors, OptRevLex posted directly on the neighbor lists, read from the largest
+     * neighbor down (the neighbor slots reversed): the same order as
+     * {@link #addOptRevLexNei}, without rebuilding the 0/1 rows. For every pair i &lt; j with
+     * deg[i] = deg[j], with e = 1 iff i and j are adjacent:
      * <pre>
-     *   rev(M[i] − {j+1})  ≤lex  rev(M[j] − {i+1})
+     *   list(i) minus label j+1  ≤lex  list(j) minus label i+1
      * </pre>
-     * where {@code rev} is the 0/1 row read right-to-left, i.e. the neighbor list itself:
-     * rows are already sorted descending with zeros last ({@link #addOrderedRows}), and
-     * {@code −} deletes that label (see {@link #dropLabel}). Removing columns i and j from
-     * both 0/1 rows leaves the vectors of N(i)\{j} and N(j)\{i}; reverse lexicographic order
-     * on those vectors means "the largest element of the symmetric difference belongs to
-     * N(j)\{i}", which is exactly lexicographic order on the descending lists.
-     * Note: removing label j from row i and label i from row j is correct on the lists,
-     * but NOT on the 0/1 rows, where it would misalign the columns between i and j.
+     * Read right to left, the 0/1 rows first differ at the LARGEST vertex w of
+     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). In the decreasing lists the first
+     * difference is also at w, and the list holding w is the larger one.
      */
-    private static void addOptRevLexNeiDirect(IloCP cp, IloIntVar[][] M, int N)
-            throws IloException {
-        if (N < 3) return;   // with labels i and j removed nothing is left to compare
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                // e = 1 iff i and j are adjacent (= count(M[j], i+1) by symmetry)
+    private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        int n = deg.length;
+        if (n < 3) return;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (deg[i] != deg[j] || deg[i] == 0) continue;
+                IloIntExpr e = cp.count(M[i], j + 1);   // = count(M[j], i+1), by symmetry
+                // decreasing lists: the increasing neighbor slots 0..deg-1, reversed
+                IloIntExpr[] li = reverse(slots(M[i], 0, deg[i])), lj = reverse(slots(M[j], 0, deg[j]));
+                cp.add(cp.lexicographic(dropLabel(cp, li, j + 1, e), dropLabel(cp, lj, i + 1, e)));
+            }
+        }
+    }
+
+    /**
+     * Neighbors, OptLex posted directly on the increasing lists: the same order as
+     * {@link #addOptLexNei}. For every pair i &lt; j with deg[i] = deg[j], with e = 1 iff i
+     * and j are adjacent:
+     * <pre>
+     *   list(j) minus label i+1  ≤lex  list(i) minus label j+1     (arguments swapped)
+     * </pre>
+     * Read left to right, the 0/1 rows first differ at the SMALLEST vertex w of
+     * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). In the increasing lists the first
+     * difference is also at w, and the list holding w is the smaller one.
+     */
+    private static void addOptLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        int n = deg.length;
+        if (n < 3) return;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                if (deg[i] != deg[j] || deg[i] == 0) continue;
                 IloIntExpr e = cp.count(M[i], j + 1);
-                cp.add(cp.lexicographic(
-                        dropLabel(cp, M[i], j + 1, e),
-                        dropLabel(cp, M[j], i + 1, e)));
+                int D = M[i].length;
+                IloIntExpr[] li = slots(M[i], D - deg[i], D), lj = slots(M[j], D - deg[j], D);
+                cp.add(cp.lexicographic(dropLabelAsc(cp, lj, i + 1, e, n), dropLabelAsc(cp, li, j + 1, e, n)));
             }
         }
     }
 
     /**
-     * Returns the neighbor list of a row (already descending, zeros last) with
-     * {@code label} deleted, as n-2 expressions. {@code e} is 1 iff {@code label} is in the
-     * row. Every entry at or after the position of {@code label} moves one slot to the left:
+     * A decreasing neighbor list with {@code label} deleted only if e = 1 (label adjacent):
+     * every entry at or after the label moves one slot left, and a 0 enters at the end.
      * <pre>
-     *   R'[k] = R[k] + s_k · (R[k+1] − R[k]),   s_k = e · [R[k] ≤ label]
+     *   out[k] = L[k] + s_k · (L[k+1] − L[k]),   s_k = e · [L[k] ≤ label],   L[d] = 0
      * </pre>
-     * When e = 0 the row has at most n-2 neighbors, so dropping its last slot (a 0) is harmless.
      */
-    private static IloIntExpr[] dropLabel(IloCP cp, IloIntVar[] row, int label, IloIntExpr e)
+    private static IloIntExpr[] dropLabel(IloCP cp, IloIntExpr[] L, int label, IloIntExpr e)
             throws IloException {
-        int D = row.length;
-        IloIntExpr[] R = row;   // sorted descending by addOrderedRows(.., true)
-        IloIntExpr[] out = new IloIntExpr[D - 1];
-        for (int k = 0; k < D - 1; k++) {
-            IloIntExpr shifted = cp.prod(e, cp.le(R[k], label));   // label sits at a slot <= k
-            out[k] = cp.sum(R[k], cp.prod(shifted, cp.diff(R[k + 1], R[k])));
+        int d = L.length;
+        IloIntExpr[] out = new IloIntExpr[d];
+        for (int k = 0; k < d; k++) {
+            IloIntExpr shift = cp.prod(e, cp.le(L[k], label));
+            IloIntExpr next = (k + 1 < d) ? L[k + 1] : cp.constant(0);
+            out[k] = cp.sum(L[k], cp.prod(shift, cp.diff(next, L[k])));
+        }
+        return out;
+    }
+
+    /**
+     * An increasing neighbor list with {@code label} deleted only if e = 1: as
+     * {@link #dropLabel}, with s_k = e · [L[k] ≥ label] and the sentinel n+1 entering at
+     * the end (it is larger than every label, as 0 is smaller in the decreasing case).
+     */
+    private static IloIntExpr[] dropLabelAsc(IloCP cp, IloIntExpr[] L, int label, IloIntExpr e, int n)
+            throws IloException {
+        int d = L.length;
+        IloIntExpr[] out = new IloIntExpr[d];
+        for (int k = 0; k < d; k++) {
+            IloIntExpr shift = cp.prod(e, cp.ge(L[k], label));
+            IloIntExpr next = (k + 1 < d) ? L[k + 1] : cp.constant(n + 1);
+            out[k] = cp.sum(L[k], cp.prod(shift, cp.diff(next, L[k])));
         }
         return out;
     }
 
     // =========================================================================
-    //  SYMMETRY BREAKING  (OptLex, Codish et al.: columns read left to right)
+    //  CONSTRAINTS: connectivity (with OptRevLex; correct for regular sequences only)
     // =========================================================================
 
     /**
-     * Adjacency model, OptLex: for every pair of rows i &lt; j, row i is
-     * lexicographically ≤ row j when columns i and j are removed, the left-most
-     * column being the most significant.
+     * Upper off-diagonal: every vertex i &lt; n-1 has a neighbor v &gt; i. Correct for regular
+     * sequences only: with unequal degrees only equal-degree vertices can swap labels, and
+     * some connected graphs are lost (e.g. K2,3 for [2,2,2,3,3]).
      */
-    private static void addOptLex(IloCP cp, IloIntVar[][] M) throws IloException {
-        int N = M.length;
-        if (N < 3) return;   // with columns i and j removed nothing is left to compare
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                cp.add(cp.lexicographic(arrayNew(M[i], i, j), arrayNew(M[j], i, j)));
-            }
-        }
-    }
-
-    /**
-     * Neighbors model, OptLex: same ordering as {@link #addOptLex}, posted on the 0/1
-     * adjacency rows rebuilt as expressions over the neighbor lists
-     * ({@code C[i][v] = count(M[i], v+1)}).
-     */
-    private static void addOptLexNei(IloCP cp, IloIntVar[][] M, int N) throws IloException {
-        IloIntExpr[][] C = new IloIntExpr[N][N];
-        for (int i = 0; i < N; i++) {
-            for (int v = 0; v < N; v++) {
-                C[i][v] = (v == i) ? cp.constant(0) : cp.count(M[i], v + 1);
-            }
-        }
-
-        if (N < 3) return;   // with columns i and j removed nothing is left to compare
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                cp.add(cp.lexicographic(arrayNew(C[i], i, j), arrayNew(C[j], i, j)));
-            }
-        }
-    }
-
-    /**
-     * Neighbors model, OptLex posted directly on the neighbor lists. Same constraint as
-     * {@link #addOptLexNei}: for every pair i &lt; j, with S_i = N(i)\{j} and S_j = N(j)\{i},
-     * <pre>
-     *   asc(S_j)  ≤lex  asc(S_i)
-     * </pre>
-     * where {@code asc} lists a set in increasing order padded at the END with the sentinel
-     * n+1 (see {@link #dropLabelAsc}). Read left to right, the 0/1 rows first differ at the
-     * SMALLEST element w of S_i Δ S_j, and row i ≤ row j iff w ∈ S_j. In the padded
-     * increasing lists the first difference also sits at w, and the list holding w is the
-     * smaller one, hence the swapped arguments.
-     *
-     * <p>Unlike OptRevLex, the significant end of a row (its smallest neighbor) is preceded
-     * by a variable number of padding zeros, so each list is read from position
-     * {@code count(M[i], 0)} with {@code element} expressions.
-     */
-    private static void addOptLexNeiDirect(IloCP cp, IloIntVar[][] M, int N)
-            throws IloException {
-        if (N < 3) return;   // with labels i and j removed nothing is left to compare
-        int D = N - 1;
-        IloIntExpr sentinel = cp.constant(N + 1);
-
-        // Per row: ext = row followed by D sentinels, z = number of padding zeros,
-        // head[k] = k-th smallest neighbor (or the sentinel) = ext[z + k]
-        IloIntExpr[][] ext = new IloIntExpr[N][2 * D];
-        IloIntExpr[] z = new IloIntExpr[N];
-        IloIntExpr[][] head = new IloIntExpr[N][D - 1];
-        for (int v = 0; v < N; v++) {
-            for (int p = 0; p < 2 * D; p++) {
-                ext[v][p] = (p < D) ? M[v][p] : sentinel;
-            }
-            z[v] = cp.count(M[v], 0);
-            for (int k = 0; k < D - 1; k++) {
-                head[v][k] = cp.element(ext[v], cp.sum(z[v], k));
-            }
-        }
-
-        for (int i = 0; i < N - 1; i++) {
-            for (int j = i + 1; j < N; j++) {
-                // e = 1 iff i and j are adjacent (= count(M[j], i+1) by symmetry)
-                IloIntExpr e = cp.count(M[i], j + 1);
-                cp.add(cp.lexicographic(
-                        dropLabelAsc(cp, ext[j], z[j], head[j], i + 1, e),
-                        dropLabelAsc(cp, ext[i], z[i], head[i], j + 1, e)));
-            }
-        }
-    }
-
-    /**
-     * Returns the neighbors of a row in increasing order, padded at the end with the
-     * sentinel n+1, with {@code label} deleted, as n-2 expressions. {@code e} is 1 iff
-     * {@code label} is in the row. Slot k reads position z+k of {@code ext}, or z+k+1 once
-     * the label has been passed:
-     * <pre>
-     *   out[k] = ext[z + k + s_k],   s_k = e · [head[k] ≥ label]
-     * </pre>
-     * When e = 0 the row has at most n-2 neighbors, so n-2 slots hold them all.
-     */
-    private static IloIntExpr[] dropLabelAsc(IloCP cp, IloIntExpr[] ext, IloIntExpr z,
-                                             IloIntExpr[] head, int label, IloIntExpr e)
-            throws IloException {
-        IloIntExpr[] out = new IloIntExpr[head.length];
-        for (int k = 0; k < head.length; k++) {
-            IloIntExpr shifted = cp.prod(e, cp.ge(head[k], label));   // label at a slot <= k
-            out[k] = cp.element(ext, cp.sum(cp.sum(z, k), shifted));
-        }
-        return out;
-    }
-
-    // =========================================================================
-    //  CONNECTIVITY  (upper off-diagonal)
-    // =========================================================================
-
-    /**
-     * Adjacency model: every vertex i &lt; n-1 has at least one neighbor with a
-     * larger label, i.e. the upper off-diagonal part of row i is not all zero.
-     * Compatible with OptRevLex.
-     */
-    private static void addOffDiagAdjConnectivity(IloCP cp, IloIntVar[][] M)
-            throws IloException {
-        int N = M.length;
-        for (int i = 0; i < N - 1; i++) {
-            IloIntVar[] upper = Arrays.copyOfRange(M[i], i + 1, N);
+    private static void addUpperOffDiagonal(IloCP cp, IloIntExpr[][] A) throws IloException {
+        int n = A.length;
+        for (int i = 0; i < n - 1; i++) {
+            IloIntExpr[] upper = new IloIntExpr[n - 1 - i];
+            for (int v = i + 1; v < n; v++) upper[v - i - 1] = A[i][v];
             cp.add(cp.gt(cp.sum(upper), 0));
         }
     }
 
     /**
-     * Neighbors model, same reasoning as {@link #addOffDiagAdjConnectivity}, posted on the
-     * 0/1 rows rebuilt as expressions over the neighbor lists
-     * ({@code C[i][v] = count(M[i], v+1)}): for every vertex i &lt; n-1,
-     * {@code sum_{v > i} C[i][v] > 0}. Does not depend on the order of the slots.
+     * {@link #addUpperOffDiagonal} on the OptRevLex layout ({@code 2 5 0 0}): the largest
+     * neighbor of vertex i, in the last neighbor slot deg[i]-1, is above i.
      */
-    private static void addOffDiagNeiConnectivity(IloCP cp, IloIntVar[][] M)
-            throws IloException {
-        int N = M.length;
-        for (int i = 0; i < N - 1; i++) {
-            IloIntExpr[] upper = new IloIntExpr[N - 1 - i];
-            for (int v = i + 1; v < N; v++) {
-                upper[v - i - 1] = cp.count(M[i], v + 1);
-            }
-            cp.add(cp.gt(cp.sum(upper), 0));
-        }
-    }
-
-    /**
-     * Neighbors model, posted directly on the neighbor lists: same condition as
-     * {@link #addOffDiagAdjConnectivity}. Rows are sorted ({@link #addOrderedRows}), so it
-     * reduces to "the largest neighbor of row i is above i's label", a single unary
-     * constraint per vertex, O(n) in total. The largest neighbor is the first slot for
-     * descending rows (OptRevLex), the last slot for increasing rows (OptLex). An empty
-     * row holds 0 there and fails, as it must.
-     */
-    private static void addOffDiagNeiDirectConnectivity(IloCP cp, IloIntVar[][] M,
-                                                         boolean descending)
-            throws IloException {
-        int N = M.length;
-        int max = descending ? 0 : M[0].length - 1;
-        for (int i = 0; i < N - 1; i++) {
-            cp.add(cp.gt(M[i][max], i + 1));
+    private static void addLargestNeighborAbove(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        for (int i = 0; i < M.length - 1; i++) {
+            int last = Math.max(deg[i] - 1, 0);   // deg 0: slot 0 holds 0, so the constraint fails
+            cp.add(cp.gt(M[i][last], i + 1));
         }
     }
 
     // =========================================================================
-    //  SOLUTION COUNTING
+    //  SOLVING
     // =========================================================================
 
-    /**
-     * Runs the configured solver to exhaustion and returns a {@link Result}
-     * with the number of solutions, the wall-clock time in ms, the solver's
-     * search statistics and its peak memory usage. Solutions are not stored.
-     *
-     * @param M        the decision variables, used only when printing
-     * @param encoding how M encodes the graph, used only when printing
-     * @param title    if not null, every solution is printed to the console under this title
-     *                 (printing is included in the measured time)
-     */
-    private static Result collectResults(IloCP cp, IloIntVar[][] M, Encoding encoding, String title)
+    /** Enumerates all solutions (printing them if title != null), then frees the solver. */
+    private static Result solve(IloCP cp, IloIntVar[][] M, boolean neighbors, String title)
             throws IloException {
-        if (title != null) {
-            System.out.println();
-            System.out.println("##### " + title + " #####");
-        }
+        cp.setParameter(IloCP.IntParam.LogVerbosity,          IloCP.ParameterValues.Quiet);
+        cp.setParameter(IloCP.IntParam.SearchType,            IloCP.ParameterValues.DepthFirst);
+        cp.setParameter(IloCP.IntParam.DefaultInferenceLevel, IloCP.ParameterValues.Low);
+        cp.setParameter(IloCP.IntParam.MemoryDisplay,         0);
+
+        if (title != null) System.out.println("\n##### " + title + " #####");
         long start = System.currentTimeMillis();
-        cp.startNewSearch();
         int count = 0;
+        cp.startNewSearch();
         while (cp.next()) {
             count++;
-            if (title != null) {
-                printSolution(cp, M, encoding, count);
-            }
+            if (title != null) printSolution(cp, M, neighbors, count);
         }
         cp.endSearch();
-        long elapsed = System.currentTimeMillis() - start;
-
-        return new Result(
-                count, elapsed,
-                cp.getInfo(IloCP.IntInfo.NumberOfFails),
-                cp.getInfo(IloCP.IntInfo.NumberOfBranches),
-                cp.getInfo(IloCP.IntInfo.NumberOfChoicePoints),
-                cp.getInfo(IloCP.IntInfo.NumberOfConstraints),
+        Result result = new Result(count, System.currentTimeMillis() - start,
                 cp.getInfo(IloCP.IntInfo.PeakMemoryUsage));
+        cp.end();   // free the native solver: all runs share one JVM
+        return result;
     }
 
-    /**
-     * Prints the current solution: the 0/1 rows of the adjacency matrix, or for the
-     * neighbors model one line "vertex: neighbors" per vertex (labels are 1-based).
-     */
-    private static void printSolution(IloCP cp, IloIntVar[][] M, Encoding encoding, int index)
+    /** Prints the 0/1 matrix, or one line "vertex: neighbors" per vertex. */
+    private static void printSolution(IloCP cp, IloIntVar[][] M, boolean neighbors, int index)
             throws IloException {
         StringBuilder sb = new StringBuilder("Solution ").append(index).append('\n');
         for (int i = 0; i < M.length; i++) {
-            if (encoding == Encoding.NEIGHBORS) {
-                sb.append(String.format("%3d:", i + 1));
-            }
-            for (IloIntVar v : M[i]) {
-                sb.append(' ').append((int) cp.getValue(v));
-            }
+            if (neighbors) sb.append(String.format("%3d:", i + 1));
+            for (IloIntVar x : M[i]) sb.append(' ').append((int) cp.getValue(x));
             sb.append('\n');
         }
         System.out.println(sb);
     }
 
     // =========================================================================
-    //  BENCHMARK CONFIGURATIONS  (one table column each, see Main)
+    //  HELPERS
     // =========================================================================
 
-    /**
-     * Adjacency model + OptRevLex.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex, or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptRevLexAdj(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelAdj(cp, n, d);
-            addOptRevLex(cp, M);
-            if (connectivity) {
-                addOffDiagAdjConnectivity(cp, M);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.ADJACENCY, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Neighbors model + OptRevLex.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex (d >= 1), or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptRevLexNei(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M, true);
-            addOptRevLexNei(cp, M, n);
-            if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.NEIGHBORS, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Neighbors model + OptRevLex posted directly on the neighbor lists
-     * ({@link #addOptRevLexNeiDirect}). Finds the same solutions as {@link #testOptRevLexNei}.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex (d >= 1), or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptRevLexNeiDirect(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M, true);
-            addOptRevLexNeiDirect(cp, M, n);
-            if (connectivity) {
-                addOffDiagNeiDirectConnectivity(cp, M, true);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.NEIGHBORS, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Adjacency model + OptLex.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex, or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptLexAdj(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelAdj(cp, n, d);
-            addOptLex(cp, M);
-            if (connectivity) {
-                addOffDiagAdjConnectivity(cp, M);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.ADJACENCY, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Neighbors model + OptLex on the rebuilt 0/1 rows.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex (d >= 1), or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptLexNei(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M, false);
-            addOptLexNei(cp, M, n);
-            if (connectivity) {
-                addOffDiagNeiConnectivity(cp, M);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.NEIGHBORS, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    /**
-     * Neighbors model + OptLex posted directly on the neighbor lists
-     * ({@link #addOptLexNeiDirect}). Finds the same solutions as {@link #testOptLexNei}.
-     *
-     * @param n            number of vertices (n >= 2)
-     * @param d            degree of every vertex (d >= 1), or {@link #ANY_DEGREE} for all graphs
-     * @param connectivity if true, also posts the upper off-diagonal connectivity constraint
-     * @param title        if not null, prints every solution under this title
-     */
-    public static Result testOptLexNeiDirect(int n, int d, boolean connectivity, String title) {
-        try {
-            IloCP cp = new IloCP();
-            IloIntVar[][] M = buildBaseModelNei(cp, n, d);
-            addOrderedRows(cp, M, false);
-            addOptLexNeiDirect(cp, M, n);
-            if (connectivity) {
-                addOffDiagNeiDirectConnectivity(cp, M, false);
-            }
-            configureSolver(cp);
-            return collectResults(cp, M, Encoding.NEIGHBORS, title);
-        } catch (IloException e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    // =========================================================================
-    //  ARRAY UTILITIES
-    // =========================================================================
-
-    /**
-     * Returns a copy of {@code array} in its original order with the entries at
-     * {@code exclude1} and {@code exclude2} removed (both columns of the pair being
-     * compared, as the OptRevLex ordering requires).
-     */
-    private static IloIntExpr[] arrayNew(IloIntExpr[] array, int exclude1, int exclude2) {
-        int len = array.length;
-        if (exclude1 < 0 || exclude1 >= len || exclude2 < 0 || exclude2 >= len) {
-            throw new IllegalArgumentException("Exclude indices must be in [0, " + len + ")");
-        }
-        int size = (exclude1 == exclude2) ? len - 1 : len - 2;
-        IloIntExpr[] result = new IloIntExpr[size];
-        int idx = 0;
-        for (int i = 0; i < len; i++) {
-            if (i != exclude1 && i != exclude2) {
-                result[idx++] = array[i];
+    /** The 0/1 adjacency rows of the neighbors model: A[u][v] = count(M[u], v+1). */
+    private static IloIntExpr[][] adjacencyOf(IloCP cp, IloIntVar[][] M) throws IloException {
+        int n = M.length;
+        IloIntExpr[][] A = new IloIntExpr[n][n];
+        for (int u = 0; u < n; u++) {
+            for (int v = 0; v < n; v++) {
+                A[u][v] = (u == v) ? cp.constant(0) : cp.count(M[u], v + 1);
             }
         }
-        return result;
+        return A;
     }
 
-    /** Reverses an expression array, so lexicographic order reads columns right-to-left. */
+    /** The row without the entries at positions i and j. */
+    private static IloIntExpr[] without(IloIntExpr[] row, int i, int j) {
+        IloIntExpr[] out = new IloIntExpr[row.length - 2];
+        int k = 0;
+        for (int p = 0; p < row.length; p++) {
+            if (p != i && p != j) out[k++] = row[p];
+        }
+        return out;
+    }
+
+    /** The neighbor slots from..to-1 of a row (their position is fixed by the row layout). */
+    private static IloIntExpr[] slots(IloIntVar[] row, int from, int to) {
+        IloIntExpr[] out = new IloIntExpr[to - from];
+        for (int k = from; k < to; k++) out[k - from] = row[k];
+        return out;
+    }
+
+    /** The array in reverse order, so that lexicographic order reads it right to left. */
     private static IloIntExpr[] reverse(IloIntExpr[] a) {
         IloIntExpr[] r = new IloIntExpr[a.length];
-        for (int k = 0; k < a.length; k++) {
-            r[k] = a[a.length - 1 - k];
-        }
+        for (int k = 0; k < a.length; k++) r[k] = a[a.length - 1 - k];
         return r;
     }
 }

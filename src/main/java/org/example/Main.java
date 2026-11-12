@@ -1,11 +1,18 @@
 package org.example;
 
+import ilog.concert.IloException;
+
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 
 /**
- * Benchmark driver: enumerates the graphs on N vertices for each N in {@link #N_VALUES},
- * with every configuration of {@link CpModels}, and prints the results as a text table
- * (one column per configuration, two lines per N).
+ * Benchmark driver: for each degree sequence, runs every model of {@link CpModels} listed
+ * in {@link #columns()} and prints one table row (solutions, time, peak memory per model).
+ *
+ * <p>Usage: {@code Main [seq ...]}, one degree sequence per argument, degrees separated by
+ * commas, e.g. {@code Main 2,2,2,3,3,4 3,3,3,3}. Every sequence is sorted in increasing
+ * order before it is run. Without arguments the {@link #DEFAULT_SEQUENCES} are run.
  */
 public class Main {
 
@@ -13,260 +20,166 @@ public class Main {
     //  CONFIGURATION
     // =========================================================================
 
-    /** Numbers of vertices N to run, one table row each (each N >= 2). */
-    private static final int[] N_VALUES = {6,8,10};
+    /**
+     * Sequences run when no argument is given, in increasing order: vertex i has degree
+     * deg[i]. Non-graphic sequences are skipped.
+     */
+    private static final int[][] DEFAULT_SEQUENCES = {
+            regular(6, 4), regular(7, 4), regular(8, 4), regular(9, 4), regular(10, 4), regular(12, 4),
+            {2, 2, 2, 3, 3, 4}, {2, 2, 2, 2, 3, 3, 3, 3}, {2, 2, 3, 3, 3, 4, 4, 5},
+    };
 
     /**
-     * CpModels.ANY_DEGREE = all graphs on N vertices;
-     * d >= 1              = only d-regular graphs (every vertex has degree d).
-     * An N with no d-regular graph (d >= N, or N·d odd) is skipped.
+     * true = connected graphs only (OptRevLex models only, upper off-diagonal constraint:
+     * correct for regular sequences, may lose graphs for non-regular ones); false = all graphs.
      */
-    private static final int DEGREE = 3;// CpModels.ANY_DEGREE; // Or d
+    private static final boolean CONNECTIVITY = false;
 
-    /**
-     * true  = also post the upper off-diagonal connectivity constraint (connected graphs only);
-     * false = OptRevLex symmetry breaking only (connected or not).
-     */
-    private static final boolean CONNECTIVITY = true;
-
-    /**
-     * true  = print every solution (graph) found to the console, before the table row;
-     * false = count solutions only. Printing slows the runs and is included in the time.
-     */
+    /** true = print every graph found (slower, and included in the time). */
     private static final boolean PRINT_SOLUTIONS = false;
 
-    /**
-     * Table columns, in the same order as the results passed to printInstanceRows.
-     * The upper off-diagonal connectivity constraint is only valid with OptRevLex,
-     * so the OptLex variants are not run when CONNECTIVITY is on.
-     */
-    private static final String[] ALL_COLS = CONNECTIVITY
-            ? new String[]{"OptRevLexAdjCon", "OptRevLexNeiCon", "OptRevLexNeiDirCon"}
-            : new String[]{"OptLexAdj", "OptLexNei", "OptLexNeiDir",
-                           "OptRevLexAdj", "OptRevLexNei", "OptRevLexNeiDir"};
-
-    /** Width of the instance-name column. */
-    private static final int W_INST = 10;
-    /** Width of each result column. */
-    private static final int W_COL = 20;
-
-    // =========================================================================
-    //  ENTRY POINT
-    // =========================================================================
-
-    public static void main(String[] args) {
-        runExperiments();
+    /** A model of {@link CpModels}: solves one degree sequence, printing under title if not null. */
+    private interface Model {
+        Result run(int[] deg, String title) throws IloException;
     }
 
-    // =========================================================================
-    //  EXPERIMENT RUNNER
-    // =========================================================================
+    /** One table column: its header and the model it runs. */
+    private record Column(String name, Model model) {}
 
-    /** Runs all configurations for each N and prints the table. */
-    public static void runExperiments() {
-        if (DEGREE != CpModels.ANY_DEGREE && DEGREE < 1) {
-            throw new IllegalArgumentException("DEGREE must be CpModels.ANY_DEGREE or >= 1");
+    /**
+     * The table columns. Connectivity is only valid with OptRevLex, so the OptLex models
+     * are not run when CONNECTIVITY is on.
+     */
+    private static List<Column> columns() {
+        if (CONNECTIVITY) {
+            return List.of(
+                    new Column("OptRevLexAdjCon",    (d, t) -> CpModels.optRevLexAdj(d, true, t)),
+                    new Column("OptRevLexNeiCon",    (d, t) -> CpModels.optRevLexNei(d, true, t)),
+                    new Column("OptRevLexNeiDirCon", (d, t) -> CpModels.optRevLexNeiDir(d, true, t)));
         }
+        return List.of(
+                new Column("OptLexAdj",       CpModels::optLexAdj),
+                new Column("OptLexNei",       CpModels::optLexNei),
+                new Column("OptLexNeiDir",    CpModels::optLexNeiDir),
+                new Column("OptRevLexAdj",    (d, t) -> CpModels.optRevLexAdj(d, false, t)),
+                new Column("OptRevLexNei",    (d, t) -> CpModels.optRevLexNei(d, false, t)),
+                new Column("OptRevLexNeiDir", (d, t) -> CpModels.optRevLexNeiDir(d, false, t)));
+    }
 
-        printBanner();
-        printColumnHeader();
-        printHRule('=');
-        printGroupLabel(DEGREE == CpModels.ANY_DEGREE
-                ? "All graphs  G_n" : DEGREE + "-regular graphs  K_n(" + DEGREE + ")");
+    private static final List<Column> COLUMNS = columns();
 
-        for (int n : N_VALUES) {
-            String name = instanceName(n);
-            String skip = whySkipped(n);
-            if (skip != null) {
-                System.out.println("  " + name + " skipped: " + skip);
+    private static final int W_COL = 20;   // width of a result column
+
+    // =========================================================================
+    //  RUN
+    // =========================================================================
+
+    public static void main(String[] args) throws IloException {
+        int[][] sequences = Arrays.stream(args.length == 0 ? DEFAULT_SEQUENCES : parse(args))
+                .map(d -> Arrays.stream(d).sorted().toArray())   // increasing order
+                .toArray(int[][]::new);
+        int wName = Math.max(10, 2 + Arrays.stream(sequences).mapToInt(d -> name(d).length()).max().orElse(0));
+
+        System.out.println("Connectivity: " + (CONNECTIVITY ? "ON" : "OFF")
+                + "   |   cell = solutions (time), then peak memory");
+        printRow(wName, "Sequence", COLUMNS.stream().map(Column::name).toList());
+        printRule(wName, '=');
+
+        for (int[] deg : sequences) {
+            String name = name(deg);
+            String error = check(deg);
+            if (error != null) {
+                System.out.println(" " + name + " skipped: " + error);
                 continue;
             }
-
-            // Title shown above the printed solutions; null disables printing.
-            // OptLex variants only run without connectivity (see ALL_COLS).
-            Result[] results;
-            if (CONNECTIVITY) {
-                results = new Result[]{
-                        CpModels.testOptRevLexAdj(n, DEGREE, true, title(name, 0)),
-                        CpModels.testOptRevLexNei(n, DEGREE, true, title(name, 1)),
-                        CpModels.testOptRevLexNeiDirect(n, DEGREE, true, title(name, 2))};
-            } else {
-                results = new Result[]{
-                        CpModels.testOptLexAdj(n, DEGREE, false, title(name, 0)),
-                        CpModels.testOptLexNei(n, DEGREE, false, title(name, 1)),
-                        CpModels.testOptLexNeiDirect(n, DEGREE, false, title(name, 2)),
-                        CpModels.testOptRevLexAdj(n, DEGREE, false, title(name, 3)),
-                        CpModels.testOptRevLexNei(n, DEGREE, false, title(name, 4)),
-                        CpModels.testOptRevLexNeiDirect(n, DEGREE, false, title(name, 5))};
+            List<Result> results = new ArrayList<>();
+            for (Column c : COLUMNS) {
+                results.add(c.model().run(deg, PRINT_SOLUTIONS ? name + " " + c.name() : null));
             }
+            printRow(wName, name, results.stream()
+                    .map(r -> String.format("%,d (%.2fs)", r.count(), r.timeMs() / 1000.0)).toList());
+            printRow(wName, "  memory", results.stream().map(r -> memory(r.peakMemory())).toList());
+            printRule(wName, '-');
+        }
+    }
 
-            printInstanceRows(name, results);
-            printHRule('-');
+    // =========================================================================
+    //  DEGREE SEQUENCES
+    // =========================================================================
+
+    /** d repeated n times. */
+    private static int[] regular(int n, int d) {
+        int[] deg = new int[n];
+        Arrays.fill(deg, d);
+        return deg;
+    }
+
+    /** Each argument "4,3,3,2" is one sequence. */
+    private static int[][] parse(String[] args) {
+        return Arrays.stream(args)
+                .map(a -> Arrays.stream(a.split(",")).map(String::trim).mapToInt(Integer::parseInt).toArray())
+                .toArray(int[][]::new);
+    }
+
+    /** "N8_d3" for a regular sequence, else e.g. "N6_222334" ('.'-separated if a degree > 9). */
+    private static String name(int[] deg) {
+        if (Arrays.stream(deg).allMatch(d -> d == deg[0])) return "N" + deg.length + "_d" + deg[0];
+        String sep = Arrays.stream(deg).anyMatch(d -> d > 9) ? "." : "";
+        return "N" + deg.length + "_" + String.join(sep, Arrays.stream(deg).mapToObj(String::valueOf).toList());
+    }
+
+    /** Returns why the sequence cannot be run, or null if it can. */
+    private static String check(int[] deg) {
+        int n = deg.length;
+        if (n < 2) return "N must be at least 2";
+        for (int d : deg) {
+            if (d < 0 || d >= n) return "every degree must be in [0, N-1]";
         }
 
-        printFooter();
-    }
-
-    /** Title shown above the printed solutions of column {@code col}; null disables printing. */
-    private static String title(String name, int col) {
-        return PRINT_SOLUTIONS ? name + " " + ALL_COLS[col] : null;
-    }
-
-    /** Row name: "N8" for all graphs, "N8_d3" when the degree is fixed. */
-    private static String instanceName(int n) {
-        return DEGREE == CpModels.ANY_DEGREE ? "N" + n : "N" + n + "_d" + DEGREE;
-    }
-
-    /** Returns why N cannot be run with the configured degree, or null if it can. */
-    private static String whySkipped(int n) {
-        if (n < 2) return "N must be at least 2";
-        if (DEGREE == CpModels.ANY_DEGREE) return null;
-        if (DEGREE >= n) return "degree " + DEGREE + " needs more than " + n + " vertices";
-        if (n * DEGREE % 2 != 0) return "N·d must be even (each edge adds 2 to the degree sum)";
+        // Erdős–Gallai, on the degrees in decreasing order d_1 >= ... >= d_n: the sum is
+        // even and for every k, d_1 + ... + d_k <= k(k-1) + sum_{i>k} min(d_i, k)
+        int[] d = new int[n];
+        for (int i = 0; i < n; i++) d[i] = deg[n - 1 - i];   // deg is increasing
+        if (Arrays.stream(d).sum() % 2 != 0) return "the degree sum must be even";
+        long left = 0;
+        for (int k = 1; k <= n; k++) {
+            left += d[k - 1];
+            long right = (long) k * (k - 1);
+            for (int i = k; i < n; i++) right += Math.min(d[i], k);
+            if (left > right) return "not graphic (Erdős–Gallai fails at k = " + k + ")";
+        }
         return null;
     }
 
     // =========================================================================
-    //  TABLE PRINTING
+    //  TABLE
     // =========================================================================
 
-    /** Prints the title and the legend explaining the cell contents. */
-    private static void printBanner() {
-        int w = tableWidth();
-        System.out.println();
-        System.out.println("=".repeat(w));
-        System.out.println(center("Graph Generation on N Vertices — Benchmark", w));
-        System.out.println(center("OptRevLex  ×  Connectivity", w));
-        System.out.println("=".repeat(w));
-        System.out.println();
-        System.out.println("Metrics:  Row 1 = Solutions (time s)   |   Row 2 = Peak memory");
-        System.out.println();
-        System.out.println("  N values:                " + Arrays.toString(N_VALUES));
-        System.out.println("  Degree:                  "
-                + (DEGREE == CpModels.ANY_DEGREE ? "any (all graphs)" : DEGREE + " (regular)"));
-        System.out.println("  Connectivity constraint: " + (CONNECTIVITY ? "ON" : "OFF"));
-        System.out.println("  Print solutions:         " + (PRINT_SOLUTIONS ? "ON" : "OFF"));
-        System.out.println("  Columns:                 " + String.join(", ", ALL_COLS));
-        System.out.println();
-    }
-
-    /** Prints a section label above the rows. */
-    private static void printGroupLabel(String title) {
-        System.out.println();
-        System.out.println("  ─── " + title + " ───");
-    }
-
-    /**
-     * Two-line column header:
-     * <pre>
-     *   Line 1: individual column names
-     *   Line 2: metric sub-label
-     * </pre>
-     */
-    private static void printColumnHeader() {
-        // Line 1 — column names
-        StringBuilder r1 = new StringBuilder("|");
-        r1.append(pad("Instance", W_INST)).append("|");
-        for (String lbl : ALL_COLS) {
-            r1.append(center(lbl, W_COL)).append("|");
-        }
-        System.out.println(r1);
-
-        // Line 2 — metric sub-label
-        StringBuilder r2 = new StringBuilder("|");
-        r2.append(pad("", W_INST)).append("|");
-        for (String ignored : ALL_COLS) {
-            r2.append(center("Sol(s | memory)", W_COL)).append("|");
-        }
-        System.out.println(r2);
-    }
-
-    /** Prints a horizontal rule made of {@code ch}, with '+' at column borders. */
-    private static void printHRule(char ch) {
-        String seg = String.valueOf(ch).repeat(W_COL);
-        StringBuilder sb = new StringBuilder("+");
-        sb.append(String.valueOf(ch).repeat(W_INST)).append("+");
-        for (String ignored : ALL_COLS) {
-            sb.append(seg).append("+");
-        }
+    private static void printRow(int wName, String name, List<String> cells) {
+        StringBuilder sb = new StringBuilder("|").append(pad(" " + name, wName)).append('|');
+        for (String c : cells) sb.append(center(c, W_COL)).append('|');
         System.out.println(sb);
     }
 
-    /**
-     * Prints two sub-rows per instance, one cell per column ({@code null} prints "--").
-     * <pre>
-     *   Row 1: "N8" or "N8_d3" | solutions (time)
-     *   Row 2: "  memory"      | peak memory used by the solver
-     * </pre>
-     */
-    private static void printInstanceRows(String name, Result[] cols) {
-        // Row 1: Solutions + Time
-        StringBuilder r1 = new StringBuilder("|");
-        r1.append(pad(name, W_INST)).append("|");
-        for (Result r : cols) {
-            r1.append(center(r == null ? "--" : solTime(r), W_COL)).append("|");
-        }
-        System.out.println(r1);
-
-        // Row 2: peak memory
-        StringBuilder r2 = new StringBuilder("|");
-        r2.append(pad("  memory", W_INST)).append("|");
-        for (Result r : cols) {
-            r2.append(center(r == null ? "--" : memory(r.peakMemory), W_COL)).append("|");
-        }
-        System.out.println(r2);
+    private static void printRule(int wName, char ch) {
+        String c = String.valueOf(ch);
+        System.out.println("+" + c.repeat(wName) + ("+" + c.repeat(W_COL)).repeat(COLUMNS.size()) + "+");
     }
 
-    /** Prints the closing banner. */
-    private static void printFooter() {
-        int w = tableWidth();
-        System.out.println();
-        System.out.println("=".repeat(w));
-        System.out.println(center("End of Experiments", w));
-        System.out.println("=".repeat(w));
-        System.out.println();
-    }
-
-    // =========================================================================
-    //  VALUE FORMATTERS
-    // =========================================================================
-
-    /** Formats "solutions (time in seconds)". */
-    private static String solTime(Result r) {
-        return String.format("%,d (%.2fs)", r.count, r.cpu / 1000.0);
-    }
-
-    /** Formats a byte count as KB/MB/GB; negative means "not collected". */
+    /** Bytes as KB / MB / GB. */
     private static String memory(long bytes) {
-        if (bytes < 0) return "--";
         if (bytes >= 1L << 30) return String.format("%.2f GB", bytes / (double) (1L << 30));
         if (bytes >= 1L << 20) return String.format("%.1f MB", bytes / (double) (1L << 20));
         return String.format("%.1f KB", bytes / 1024.0);
     }
 
-    // =========================================================================
-    //  LAYOUT HELPERS
-    // =========================================================================
-
-    /** Left-aligns {@code s} in a cell of {@code width}, truncating if needed. */
     private static String pad(String s, int width) {
-        String cell = " " + s;
-        if (cell.length() >= width) return cell.substring(0, width);
-        return cell + " ".repeat(width - cell.length());
+        return s.length() >= width ? s.substring(0, width) : s + " ".repeat(width - s.length());
     }
 
-    /** Centers {@code s} in a cell of {@code width}, truncating if needed. */
     private static String center(String s, int width) {
-        if (s == null) s = "";
         if (s.length() >= width) return s.substring(0, width);
-        int total = width - s.length();
-        int left = total / 2;
-        int right = total - left;
-        return " ".repeat(left) + s + " ".repeat(right);
-    }
-
-    /** Total table width in characters, including borders. */
-    private static int tableWidth() {
-        return 1 + W_INST + 1 + ALL_COLS.length * (W_COL + 1);
+        int left = (width - s.length()) / 2;
+        return " ".repeat(left) + s + " ".repeat(width - s.length() - left);
     }
 }
