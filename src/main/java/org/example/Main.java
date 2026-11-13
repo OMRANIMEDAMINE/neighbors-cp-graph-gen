@@ -25,8 +25,9 @@ public class Main {
      * deg[i]. Non-graphic sequences are skipped.
      */
     private static final int[][] DEFAULT_SEQUENCES = {
-            regular(6, 4), regular(7, 4), regular(8, 4), regular(9, 4), regular(10, 4), regular(12, 4),
-            {2, 2, 2, 3, 3, 4}, {2, 2, 2, 2, 3, 3, 3, 3}, {2, 2, 3, 3, 3, 4, 4, 5},
+            //regular(6, 4), regular(7, 4), regular(8, 4), regular(9, 4), regular(10, 4), regular(12, 4),
+           // {2, 2, 2, 3, 3, 4}, {2, 2, 2, 2, 3, 3, 3, 3}, {2, 2, 3, 3, 3, 4, 4, 5},
+            {1,2,2,3},
     };
 
     /**
@@ -36,7 +37,7 @@ public class Main {
     private static final boolean CONNECTIVITY = false;
 
     /** true = print every graph found (slower, and included in the time). */
-    private static final boolean PRINT_SOLUTIONS = false;
+    private static final boolean PRINT_SOLUTIONS = true;
 
     /** A model of {@link CpModels}: solves one degree sequence, printing under title if not null. */
     private interface Model {
@@ -54,15 +55,12 @@ public class Main {
         if (CONNECTIVITY) {
             return List.of(
                     new Column("OptRevLexAdjCon",    (d, t) -> CpModels.optRevLexAdj(d, true, t)),
-                    new Column("OptRevLexNeiCon",    (d, t) -> CpModels.optRevLexNei(d, true, t)),
                     new Column("OptRevLexNeiDirCon", (d, t) -> CpModels.optRevLexNeiDir(d, true, t)));
         }
         return List.of(
                 new Column("OptLexAdj",       CpModels::optLexAdj),
-                new Column("OptLexNei",       CpModels::optLexNei),
                 new Column("OptLexNeiDir",    CpModels::optLexNeiDir),
                 new Column("OptRevLexAdj",    (d, t) -> CpModels.optRevLexAdj(d, false, t)),
-                new Column("OptRevLexNei",    (d, t) -> CpModels.optRevLexNei(d, false, t)),
                 new Column("OptRevLexNeiDir", (d, t) -> CpModels.optRevLexNeiDir(d, false, t)));
     }
 

@@ -59,7 +59,7 @@ ol li,ul li{margin:4px 0}
 <code>optRevLexNeiDir</code>) generates the simple graphs with a given degree sequence, and
 posts Codish's OptLex symmetry breaking (reversed form) and the upper off-diagonal
 connectivity constraint directly on the neighbor lists <code>M</code>, without rebuilding
-0/1 adjacency rows: <code>addRevLexRows</code>, <code>addOptRevLexNeiDir</code>,
+0/1 adjacency rows: <code>buildRevLexNeighborsModel</code>, <code>addOptRevLexNeiDir</code>,
 <code>dropLabel</code> and <code>addLargestNeighborAbove</code>.</p>
 
 <div class="card">
@@ -67,10 +67,12 @@ connectivity constraint directly on the neighbor lists <code>M</code>, without r
 <ul>
   <li>The input is a <b>degree sequence</b> in increasing order: vertex i has degree
   <code>deg[i]</code>. Row i has D = max(deg) slots.</li>
-  <li><b>Simple graphs, fixed layout.</b> Each row lists the neighbors strictly increasing in
-  slots <code>0 .. deg[i]-1</code>, then zeros fixed by position: <code>2 5 0 0</code>
-  (<code>addRevLexRows</code>). The strict order replaces the "all different except 0"
-  constraint, and the fixed zeros replace the degree count.</li>
+  <li><b>Simple graphs, layout in the domains.</b> Each row lists the neighbors strictly
+  increasing in slots <code>0 .. deg[i]-1</code>, then zeros: <code>2 5 0 0</code>
+  (<code>buildRevLexNeighborsModel</code>). The zero slots are created with domain {0} and the
+  neighbor slots with domain {1..n} minus the vertex's own label, so placing the zeros,
+  "neighbor ≥ 1" and "no self-loop" need no constraint. The strict order replaces the "all
+  different except 0" constraint, and the fixed zeros replace the degree count.</li>
   <li>Symmetry breaking compares <b>only vertices of equal degree</b>: only they can swap
   labels when the degrees are fixed.</li>
   <li><b>Drop, then RevLex.</b> For each equal-degree pair, <code>dropLabel</code> removes
@@ -78,7 +80,7 @@ connectivity constraint directly on the neighbor lists <code>M</code>, without r
   rows are then compared with RevLex. It works on the whole rows and needs no adjacency
   indicator.</li>
   <li>Connectivity is <code>M[i][deg[i]-1] &gt; i+1</code> (last neighbor slot = largest
-  neighbor), used by both <code>optRevLexNei</code> and <code>optRevLexNeiDir</code>. It is
+  neighbor), used by <code>optRevLexNeiDir</code>. It is
   <b>correct for regular sequences only</b> (section 7).</li>
 </ul>
 </div>
@@ -92,34 +94,43 @@ Row <i>i</i> must be ≤ row <i>j</i>.</p>
 different degrees would break <code>deg</code>, so it is not a symmetry, and ordering such
 rows would lose graphs.</p>
 <p>The neighbors model has no 0/1 rows. Row <code>M[i]</code> holds the neighbors of
-<i>i</i> as 1-based labels, with 0 for an empty slot. <code>addOptRevLexNei</code> rebuilds
-the 0/1 rows with <code>count</code> expressions, the same reasoning as Adj.
-<code>addOptRevLexNeiDir</code> works on the labels themselves.</p>
+<i>i</i> as 1-based labels, with 0 for an empty slot. <code>addOptRevLexNeiDir</code> posts
+the same order directly on the labels.</p>
 
 <h2>2. Row layout: one row per neighbor set</h2>
-<pre><code>/** OptRevLex layout: the neighbors strictly increasing in slots 0..deg[i]-1, then 0: 2 5 0 0. */
-private static void addRevLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
-    for (int i = 0; i &lt; M.length; i++) {
-        int D = M[i].length, last = deg[i] - 1;    // last neighbor slot
-        for (int k = deg[i]; k &lt; D; k++) cp.add(cp.eq(M[i][k], 0));
-        if (deg[i] &gt; 0) cp.add(cp.ge(M[i][0], 1));
-        for (int k = 0; k &lt; last; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
+<pre><code>/** OptRevLex neighbor rows: the first deg[i] slots hold the neighbors, strictly increasing, then 0: 2 5 0 0. */
+private static IloIntVar[][] buildRevLexNeighborsModel(IloCP cp, int[] deg) throws IloException {
+    int n = deg.length, D = maxDegree(deg);
+    IloIntVar[][] M = new IloIntVar[n][D];
+    for (int i = 0; i &lt; n; i++) {
+        for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; deg[i]) ? neighborVar(cp, n, i) : cp.intVar(0, 0);
+        for (int k = 0; k + 1 &lt; deg[i]; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
     }
+    addUndirected(cp, M);
+    return M;
+}
+
+/** A neighbor slot of vertex i: domain {1..n} without i's own label i+1 (no self-loop). */
+private static IloIntVar neighborVar(IloCP cp, int n, int i) throws IloException {
+    int[] labels = new int[n - 1];
+    for (int v = 1, k = 0; v &lt;= n; v++) if (v != i + 1) labels[k++] = v;
+    return cp.intVar(labels);
 }</code></pre>
 <div class="tbl"><table>
 <tr><th class="l">model</th><th class="l">layout</th><th>{1, 4, 5}, D = 4</th></tr>
-<tr><td class="l">OptLex (<code>addLexRows</code>)</td><td class="l">zeros first, then neighbors decreasing (mirror image)</td><td><code>0 5 4 1</code></td></tr>
-<tr class="hl"><td class="l">OptRevLex (<code>addRevLexRows</code>)</td><td class="l">neighbors increasing, then zeros</td><td><code>1 4 5 0</code></td></tr>
+<tr><td class="l">OptLex (<code>buildLexNeighborsModel</code>)</td><td class="l">zeros first, then neighbors decreasing (mirror image)</td><td><code>0 5 4 1</code></td></tr>
+<tr class="hl"><td class="l">OptRevLex (<code>buildRevLexNeighborsModel</code>)</td><td class="l">neighbors increasing, then zeros</td><td><code>1 4 5 0</code></td></tr>
 </table></div>
 <p><b>Why this is enough for a simple graph.</b></p>
 <ul>
-  <li><b>Degree.</b> The zeros sit in the last <code>D − deg[i]</code> slots and the first
-  neighbor is ≥ 1, so with the strict order every neighbor slot is ≥ 1: row i holds exactly
-  <code>deg[i]</code> neighbors. No <code>count</code> of zeros is needed.</li>
+  <li><b>Degree.</b> The last <code>D − deg[i]</code> slots are created as 0 and the
+  others can only hold labels 1..n, so row i holds exactly <code>deg[i]</code> neighbors. No
+  <code>count</code> of zeros is needed.</li>
   <li><b>No multi-edge.</b> The neighbors are strictly increasing, so no label appears twice.
   No all-different is needed.</li>
-  <li><b>No loop, undirected.</b> Posted by the base model:
-  <code>M[i][k] ≠ i+1</code> and <code>count(M[u], v+1) = count(M[v], u+1)</code>.</li>
+  <li><b>No loop.</b> Label i+1 is not in the domain of row i's neighbor slots.</li>
+  <li><b>Undirected.</b> <code>addUndirected</code>:
+  <code>count(M[u], v+1) = count(M[v], u+1)</code>.</li>
   <li><b>One row per set.</b> A neighbor set has exactly one strictly increasing listing, so
   the slot order adds no solutions.</li>
 </ul>
@@ -272,7 +283,7 @@ columns {3, 4, 5}: (1, 0, 0) vs (0, 0, 1), right to left column 5 decides, 0 &lt
 <tr><th class="l">model</th><th class="l">method</th><th class="l">constraint (0-based i)</th><th class="l">size</th></tr>
 <tr><td class="l"><code>optRevLexAdj</code></td><td class="l"><code>addUpperOffDiagonal</code></td>
   <td class="l"><code>sum(M[i][i+1 .. n-1]) &gt; 0</code></td><td class="l">n − 1 sums</td></tr>
-<tr class="hl"><td class="l"><code>optRevLexNei</code>, <code>optRevLexNeiDir</code></td><td class="l"><code>addLargestNeighborAbove</code></td>
+<tr class="hl"><td class="l"><code>optRevLexNeiDir</code></td><td class="l"><code>addLargestNeighborAbove</code></td>
   <td class="l"><code>M[i][deg[i]-1] &gt; i + 1</code></td><td class="l">n − 1 unary constraints</td></tr>
 </table></div>
 <pre><code>private static void addLargestNeighborAbove(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
@@ -288,8 +299,7 @@ columns {3, 4, 5}: (1, 0, 0) vs (0, 0, 1), right to left column 5 decides, 0 &lt
   <li><b>Not slot 0.</b> Slot 0 holds the <i>smallest</i> neighbor; requiring it above i would
   require <i>all</i> neighbors above i, and gives no graph at all.</li>
   <li><b>Pruning.</b> It is a bound on a single variable: the solver removes 0..i+1 from the
-  domain of <code>M[i][deg[i]-1]</code> before search starts. On 4-regular graphs with
-  n = 12 it is about 3× faster than the count-based sum (3.7 s vs 12.0 s).</li>
+  domain of <code>M[i][deg[i]-1]</code> before search starts.</li>
   <li><b>Only with OptRevLex</b>, so the OptLex models are not run with connectivity.</li>
 </ul>
 
@@ -326,7 +336,7 @@ slot.</p>
 middle of the list, so two lists are compared slot by slot at shifted positions. Tested, it
 lost graphs in 56 of the 144 graphic sequences with n ≤ 6, even the 5-cycle (0 solutions
 instead of 1). <code>dropLabel</code> finds exactly the same solutions as
-<code>addOptRevLexNei</code>.</p>
+<code>optRevLexAdj</code>.</p>
 
 <h2>9. Try it</h2>
 <div class="card demo">

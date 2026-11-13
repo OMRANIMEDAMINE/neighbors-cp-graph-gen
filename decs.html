@@ -71,9 +71,8 @@ model vertex \(i\) is written with the label \(i+1\), so that 0 can mean "empty 
   <li><a href="#adj-sb">1.4 Adj symmetry breaking</a></li>
   <li><a href="#adj-conn">1.5 Adj connectivity</a></li>
   <li><a href="#nei">2. Neighbors model (Nei)</a></li>
-  <li><a href="#nei-layout">2.4 Nei row layout</a></li>
-  <li><a href="#nei-sb">2.5 Nei symmetry breaking</a></li>
-  <li><a href="#nei-conn">2.6 Nei connectivity</a></li>
+  <li><a href="#nei-sb">2.4 Nei symmetry breaking</a></li>
+  <li><a href="#nei-conn">2.5 Nei connectivity</a></li>
   <li><a href="#sizes">3. Size summary</a></li>
   <li><a href="#configs">4. Models</a></li>
 </ul>
@@ -181,95 +180,74 @@ too low (7 of the 144 graphic sequences with \(n \le 6\)).</p>
 
 <h3>2.1 Variables X</h3>
 <p>Row \(i\) lists the neighbors of vertex \(i\) as labels, in \(D\) slots (the largest
-degree); the \(D - \mathit{deg}_i\) unused slots hold 0. Example: neighbors \(\{2,5\}\) with
-\(D=4\) → <code>2 5 0 0</code> (RevLex) or its mirror image <code>0 0 5 2</code> (Lex).</p>
+degree); the \(D - \mathit{deg}_i\) unused slots hold 0. The position of the zeros depends on
+the order: RevLex lists the neighbors increasing, then the zeros; Lex is the mirror image.
+Example: neighbors \(\{2,5\}\) with \(D=4\) → <code>2 5 0 0</code> (RevLex) or
+<code>0 0 5 2</code> (Lex). Each order has its own builder,
+<code>buildRevLexNeighborsModel</code> and <code>buildLexNeighborsModel</code>.</p>
 <div class="c">
 <div class="m">$$X = \{\, M_{ik} \;:\; 0 \le i < n,\; 0 \le k < D \,\}, \qquad
 \{v+1 : \{i,v\} \in E\} = \{M_{ik} : M_{ik} \neq 0\}$$</div>
-<div class="sz"><span><b>|X|</b> = \(nD\) variables</span></div>
-<pre><code>int D = 1;
-for (int d : deg) D = Math.max(D, d);
-IloIntVar[][] M = new IloIntVar[n][];
-for (int i = 0; i &lt; n; i++) {
-    M[i] = cp.intVarArray(D, 0, n);   // 0 = empty slot
-    ...
-}</code></pre>
+<div class="sz"><span><b>|X|</b> = \(nD\) variables, of which \(\sum_i (D - \mathit{deg}_i)\) are created fixed to 0</span></div>
+<pre><code>// buildRevLexNeighborsModel: neighbors in slots 0..deg[i]-1, then zeros (2 5 0 0)
+for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; deg[i]) ? neighborVar(cp, n, i) : cp.intVar(0, 0);
+
+// buildLexNeighborsModel: zeros in slots 0..D-deg[i]-1, then neighbors (0 0 5 2)
+int first = D - deg[i];
+for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; first) ? cp.intVar(0, 0) : neighborVar(cp, n, i);</code></pre>
 </div>
 
 <h3>2.2 Domains D</h3>
+<p>The zeros and the neighbor labels are set in the domains when the variables are created, so
+no constraint is needed to place the zeros, to keep a neighbor slot non-zero, or to forbid a
+self-loop.</p>
 <div class="c">
-<div class="m">$$D(M_{ik}) = \{0, 1, \dots, n\} \qquad (0 = \text{empty slot})$$</div>
-<div class="sz"><span><b>|D|</b> = \(n+1\) values per variable</span></div>
-<pre><code>cp.intVarArray(D, 0, n)</code></pre>
+<div class="m">$$D(M_{ik}) = \{0\} \ \text{(zero slot)}, \qquad
+D(M_{ik}) = \{1, \dots, n\} \setminus \{i+1\} \ \text{(neighbor slot: no self-loop)}$$</div>
+<div class="sz"><span><b>|D|</b> = 1 value (zero slot) or \(n-1\) values (neighbor slot)</span></div>
+<pre><code>private static IloIntVar neighborVar(IloCP cp, int n, int i) throws IloException {
+    int[] labels = new int[n - 1];
+    for (int v = 1, k = 0; v &lt;= n; v++) if (v != i + 1) labels[k++] = v;
+    return cp.intVar(labels);
+}</code></pre>
 </div>
 
-<h3>2.3 Constraints C (base model, <code>buildNeighborsModel</code>)</h3>
+<h3>2.3 Constraints C (base model)</h3>
 <p>Notation: \(\#_a(M_i) = |\{k : M_{ik} = a\}|\) is the number of occurrences of \(a\) in row
-\(i\) (<code>cp.count(M[i], a)</code>). The base model only describes the graph; the degree and
-"no repeated neighbor" come from the row layout (2.4).</p>
+\(i\) (<code>cp.count(M[i], a)</code>).</p>
 
-<h4>C1 — No self-loop</h4>
+<h4>C1 — Strictly ordered neighbors (no repeated neighbor, one row per set)</h4>
+<p>With the zero slots fixed and every neighbor slot \(\ge 1\), the strict order gives exactly
+\(\mathit{deg}_i\) distinct neighbors per row: no degree count and no all-different are needed,
+and each neighbor set has a single row.</p>
 <div class="c">
-<div class="m">$$\forall i \in [0,n),\ \forall k \in [0,D): \quad M_{ik} \neq i+1$$</div>
-<div class="sz"><span><b>Size:</b> \(nD\) constraints</span><span><b>Arity:</b> 1</span></div>
-<pre><code>for (int k = 0; k &lt; D; k++) cp.add(cp.neq(M[i][k], i + 1));   // no self-loop</code></pre>
+<div class="m">$$\text{RevLex (2 5 0 0):}\quad M_{ik} < M_{i,k+1} \quad (0 \le k < \mathit{deg}_i - 1)$$
+$$\text{Lex (0 0 5 2):}\quad M_{ik} > M_{i,k+1} \quad (D-\mathit{deg}_i \le k < D-1)$$</div>
+<div class="sz"><span><b>Size:</b> \(\max(\mathit{deg}_i - 1, 0)\) per row</span><span><b>Arity:</b> 2</span></div>
+<pre><code>// buildRevLexNeighborsModel
+for (int k = 0; k + 1 &lt; deg[i]; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
+
+// buildLexNeighborsModel
+for (int k = first; k + 1 &lt; D; k++) cp.add(cp.gt(M[i][k], M[i][k + 1]));</code></pre>
 </div>
 
-<h4>C2 — Symmetry (undirected graph)</h4>
+<h4>C2 — Symmetry (undirected graph) — <code>addUndirected</code></h4>
 <div class="c">
 <div class="m">$$\forall\, 0 \le u < v < n: \quad \#_{v+1}(M_u) = \#_{u+1}(M_v)$$</div>
 <div class="sz"><span><b>Size:</b> \(n(n-1)/2\) constraints</span><span><b>Arity:</b> \(2D\) (rows \(u\) and \(v\))</span></div>
 <pre><code>for (int u = 0; u &lt; n; u++) {
     for (int v = u + 1; v &lt; n; v++) {
-        cp.add(cp.eq(cp.count(M[u], v + 1), cp.count(M[v], u + 1)));   // undirected
+        cp.add(cp.eq(cp.count(M[u], v + 1), cp.count(M[v], u + 1)));
     }
 }</code></pre>
-<p class="note" style="padding:0 16px 10px">Each count is 0 or 1 because the row layout makes
-the neighbors strictly ordered; padding zeros never match since labels are \(\ge 1\).</p>
+<p class="note" style="padding:0 16px 10px">Each count is 0 or 1 because the neighbors are
+strictly ordered; zero slots never match since labels are \(\ge 1\).</p>
 </div>
 
-<h3 id="nei-layout">2.4 Row layout (simple graph) — <code>addLexRows</code>, <code>addRevLexRows</code></h3>
-<p>The zeros are fixed by position and the neighbors are strictly ordered: increasing before
-the zeros for RevLex, decreasing after them for Lex (the mirror image). Together they give exactly \(\mathit{deg}_i\) distinct neighbors per row: no degree count and no
-all-different are needed, and each neighbor set has a single row.</p>
-<div class="c">
-<div class="m">$$\text{Lex (0 0 5 2):}\quad M_{ik} = 0 \ (k < D-\mathit{deg}_i), \quad M_{i,D-1} \ge 1, \quad M_{ik} > M_{i,k+1} \ (D-\mathit{deg}_i \le k < D-1)$$
-$$\text{RevLex (2 5 0 0):}\quad M_{ik} = 0 \ (k \ge \mathit{deg}_i), \quad M_{i,0} \ge 1, \quad M_{ik} < M_{i,k+1} \ (0 \le k < \mathit{deg}_i - 1)$$</div>
-<div class="sz"><span><b>Size:</b> \(D\) constraints per row, \(nD\) in total (the "\(\ge 1\)" only when \(\mathit{deg}_i &gt; 0\))</span><span><b>Arity:</b> 1 or 2</span></div>
-<pre><code>// addRevLexRows
-int D = M[i].length, last = deg[i] - 1;    // last neighbor slot
-for (int k = deg[i]; k &lt; D; k++) cp.add(cp.eq(M[i][k], 0));
-if (deg[i] &gt; 0) cp.add(cp.ge(M[i][0], 1));
-for (int k = 0; k &lt; last; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
-
-// addLexRows
-int D = M[i].length, first = D - deg[i];   // first neighbor slot
-for (int k = 0; k &lt; first; k++) cp.add(cp.eq(M[i][k], 0));
-if (deg[i] &gt; 0) cp.add(cp.ge(M[i][D - 1], 1));
-for (int k = first; k + 1 &lt; D; k++) cp.add(cp.gt(M[i][k], M[i][k + 1]));</code></pre>
-</div>
-
-<h3 id="nei-sb">2.5 Symmetry breaking (only pairs of equal degree)</h3>
-
-<h4>Rebuilt 0/1 rows — <code>adjacencyOf</code> (used by <code>optLexNei</code>, <code>optRevLexNei</code>)</h4>
-<div class="c">
-<div class="m">$$C_{iv} = \begin{cases} 0 & v = i \\ \#_{v+1}(M_i) & v \neq i \end{cases} \qquad (C_{iv} = 1 \iff \{i,v\} \in E)$$</div>
-<div class="sz"><span><b>Size:</b> no constraint; \(n(n-1)\) count expressions (+ \(n\) constants)</span><span><b>Each \(C_{iv}\) reads:</b> \(D\) variables (row \(i\))</span></div>
-<pre><code>A[u][v] = (u == v) ? cp.constant(0) : cp.count(M[u], v + 1);</code></pre>
-</div>
-
-<h4>SB-RevLex / SB-Lex on rebuilt rows — <code>addOptRevLexNei</code>, <code>addOptLexNei</code></h4>
-<p>The same constraints as Adj (1.4), posted on \(C\) instead of \(M\).</p>
-<div class="c">
-<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(C_i^{\setminus\{i,j\}}\big) \le_{lex} \operatorname{rev}\!\big(C_j^{\setminus\{i,j\}}\big) \ \ \text{(RevLex)}, \qquad C_i^{\setminus\{i,j\}} \le_{lex} C_j^{\setminus\{i,j\}} \ \ \text{(Lex)}$$</div>
-<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2D\) variables (rows \(i\) and \(j\)), through two vectors of \(n-2\) count expressions</span></div>
-<pre><code>private static void addOptRevLexNei(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
-    addOptRevLex(cp, adjacencyOf(cp, M), deg);
-}</code></pre>
-</div>
+<h3 id="nei-sb">2.4 Symmetry breaking (only pairs of equal degree)</h3>
 
 <h4>SB-Dir-RevLex — drop, then RevLex on the rows (<code>addOptRevLexNeiDir</code>)</h4>
-<p>The same order as SB-RevLex on rebuilt rows, without rebuilding the 0/1 rows. For the pair
+<p>The same order as SB-RevLex on the adjacency rows (1.4), without building 0/1 rows. For the pair
 \((i,j)\): drop label \(j+1\) from row \(i\) and label \(i+1\) from row \(j\) (if found), then
 compare the two rows from the last slot. Read right to left, the 0/1 rows first differ at the
 largest vertex \(w\) of \((N(i)\setminus\{j\}) \,\triangle\, (N(j)\setminus\{i\})\), and
@@ -296,7 +274,7 @@ for (int k = D - 1; k &gt;= 0; k--) {
 <p class="note">\(p\) is the slot holding the label. If it is not found, every \(t_k\) is 0 and
 the row is unchanged: no adjacency indicator is needed. The 0 enters at the front so that the
 freed slot is the last one compared (both Lex and RevLex compare from the last slot). Example: <code>2 5 0 0</code> without 5 →
-<code>0 2 0 0</code>. Finds the same solutions as SB-RevLex on rebuilt rows.</p>
+<code>0 2 0 0</code>. Finds the same solutions as <code>optRevLexAdj</code>.</p>
 
 <h4>SB-Dir-Lex — drop, then Lex on the rows (<code>addOptLexNeiDir</code>)</h4>
 <p>The mirror image for OptLex. Read left to right, the 0/1 rows first differ at the
@@ -315,14 +293,13 @@ IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
 cp.add(cp.lexicographic(reverse(rj), reverse(ri)));</code></pre>
 </div>
 
-<h3 id="nei-conn">2.6 Connectivity — <code>addLargestNeighborAbove</code></h3>
+<h3 id="nei-conn">2.5 Connectivity — <code>addLargestNeighborAbove</code></h3>
 <p class="warn"><strong>RevLex only, exact for regular sequences only</strong>, like the Adj
 version (1.5).</p>
 <p>"A neighbor with a larger index" is "the largest neighbor is above \(i+1\)". In the RevLex
 layout (<code>2 5 0 0</code>) the largest neighbor is the last neighbor slot
 \(\mathit{deg}_i - 1\). A vertex of degree 0 uses slot 0, which holds 0, so the constraint fails
-as it should. Used by both <code>optRevLexNei</code> and <code>optRevLexNeiDir</code>; about 3×
-faster than the count-based sum on 4-regular graphs with \(n = 12\).</p>
+as it should. Used by <code>optRevLexNeiDir</code>.</p>
 <div class="c">
 <div class="m">$$\forall i \in [0,n-1): \quad M_{i,\ \max(\mathit{deg}_i - 1,\,0)} > i+1$$</div>
 <div class="sz"><span><b>Size:</b> \(n-1\) constraints</span><span><b>Arity:</b> 1</span></div>
@@ -339,13 +316,12 @@ faster than the count-based sum on 4-regular graphs with \(n = 12\).</p>
 <div class="tw">
 <table>
 <tr><th>Part</th><th>Adj</th><th>n = 7, d = 4</th><th>Nei</th><th>n = 7, d = 4</th></tr>
-<tr><td>Variables |X|</td><td>\(n^2\)</td><td>49</td><td>\(nD\)</td><td>28</td></tr>
-<tr><td>Domain size |D|</td><td>2</td><td>2</td><td>\(n+1\)</td><td>8</td></tr>
-<tr><td>Base</td><td>\(2n + n(n-1)/2\) (incl. degree)</td><td>35</td><td>\(nD + n(n-1)/2\)</td><td>49</td></tr>
-<tr><td>Row layout (degree, no repeated neighbor)</td><td>—</td><td>—</td><td>\(nD\), arity 1–2</td><td>28</td></tr>
+<tr><td>Variables |X|</td><td>\(n^2\)</td><td>49</td><td>\(nD\) (incl. \(\sum_i (D-\mathit{deg}_i)\) fixed zeros)</td><td>28</td></tr>
+<tr><td>Domain size |D|</td><td>2</td><td>2</td><td>1 (zero slot) or \(n-1\) (neighbor slot)</td><td>6</td></tr>
+<tr><td>Base</td><td>\(2n + n(n-1)/2\) (incl. degree)</td><td>35</td><td>\(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2\)</td><td>42</td></tr>
 <tr><td>Lex / RevLex</td><td>\(P\), arity \(2(n-2)\)</td><td>21</td><td>\(P\), arity \(2D\)</td><td>21</td></tr>
 <tr><td>Connectivity (RevLex)</td><td>\(n-1\), arity \(n-1-i\)</td><td>6</td><td>\(n-1\), arity 1</td><td>6</td></tr>
-<tr><td><b>Total</b> (RevLex + connectivity)</td><td>\(2n + n(n-1)/2 + P + n - 1\)</td><td>62</td><td>\(2nD + n(n-1)/2 + P + n - 1\)</td><td>104</td></tr>
+<tr><td><b>Total</b> (RevLex + connectivity)</td><td>\(2n + n(n-1)/2 + P + n - 1\)</td><td>62</td><td>\(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + P + n - 1\)</td><td>69</td></tr>
 </table>
 </div>
 <p class="note">These are the constraints posted in Java; the number reported by CP Optimizer
@@ -353,26 +329,24 @@ faster than the count-based sum on 4-regular graphs with \(n = 12\).</p>
 
 <!-- ===================================================================== -->
 <h2 id="configs">4. Models</h2>
-<p>Each public model method of <code>CpModels</code> builds a base model, posts its row layout
-and symmetry breaking and, for OptRevLex when <code>connectivity</code> is true, a connectivity
-constraint; then it enumerates all solutions.</p>
+<p>Each public model method of <code>CpModels</code> builds a base model (variables with their
+domains, then the base constraints), posts its symmetry breaking and, for OptRevLex when
+<code>connectivity</code> is true, a connectivity constraint; then it enumerates all solutions.</p>
 <div class="tw">
 <table>
-<tr><th>Method</th><th>Main column</th><th>Base</th><th>Row layout + symmetry breaking</th><th>Connectivity</th></tr>
+<tr><th>Method</th><th>Main column</th><th>Base</th><th>Symmetry breaking</th><th>Connectivity</th></tr>
 <tr><td><code>optLexAdj</code></td><td>OptLexAdj</td><td>Adj C1–C3</td><td>SB-Lex</td><td>—</td></tr>
-<tr><td><code>optLexNei</code></td><td>OptLexNei</td><td>Nei C1–C2</td><td><code>addLexRows</code> + SB-Lex on rebuilt rows</td><td>—</td></tr>
-<tr><td><code>optLexNeiDir</code></td><td>OptLexNeiDir</td><td>Nei C1–C2</td><td><code>addLexRows</code> + SB-Dir-Lex</td><td>—</td></tr>
+<tr><td><code>optLexNeiDir</code></td><td>OptLexNeiDir</td><td><code>buildLexNeighborsModel</code> (0 0 5 2)</td><td>SB-Dir-Lex</td><td>—</td></tr>
 <tr><td><code>optRevLexAdj</code></td><td>OptRevLexAdj(Con)</td><td>Adj C1–C3</td><td>SB-RevLex</td><td>1.5 <code>addUpperOffDiagonal</code></td></tr>
-<tr><td><code>optRevLexNei</code></td><td>OptRevLexNei(Con)</td><td>Nei C1–C2</td><td><code>addRevLexRows</code> + SB-RevLex on rebuilt rows</td><td>2.6 <code>addLargestNeighborAbove</code></td></tr>
-<tr><td><code>optRevLexNeiDir</code></td><td>OptRevLexNeiDir(Con)</td><td>Nei C1–C2</td><td><code>addRevLexRows</code> + SB-Dir-RevLex</td><td>2.6 <code>addLargestNeighborAbove</code></td></tr>
+<tr><td><code>optRevLexNeiDir</code></td><td>OptRevLexNeiDir(Con)</td><td><code>buildRevLexNeighborsModel</code> (2 5 0 0)</td><td>SB-Dir-RevLex</td><td>2.5 <code>addLargestNeighborAbove</code></td></tr>
 </table>
 </div>
-<p class="note"><code>Main</code> runs the 6 models when <code>CONNECTIVITY = false</code>, and only
-the 3 OptRevLex ones (columns suffixed <code>Con</code>) when <code>CONNECTIVITY = true</code>.
+<p class="note"><code>Main</code> runs the 4 models when <code>CONNECTIVITY = false</code>, and only
+the 2 OptRevLex ones (columns suffixed <code>Con</code>) when <code>CONNECTIVITY = true</code>.
 Degree sequences come from <code>DEFAULT_SEQUENCES</code> or the command line, and are sorted
 increasing before they are run.</p>
-<p class="note">Checked by brute force on all graphic sequences with \(n \le 6\): the three
-encodings give the same counts for each order, with and without connectivity, and never lose a
+<p class="note">Checked by brute force on all 144 graphic sequences with \(n \le 6\): Adj and
+Nei give the same counts for each order, with and without connectivity, and never lose a
 graph without connectivity. Restricting the symmetry breaking to equal-degree pairs is sound
 but not complete: for some non-regular sequences a graph is found more than once.</p>
 <p class="note">Solver settings shared by all models (in <code>solve</code>): depth-first
