@@ -165,7 +165,7 @@ OptRevLex only. With a regular sequence any vertex can take any label and the co
 With unequal degrees only equal-degree vertices can swap labels, and some connected graphs have no
 valid labelling: e.g. \(K_{2,3}\) for \(\mathit{deg} = (2,2,2,3,3)\), where vertex 4 only has
 neighbors 1, 2, 3. The constraint is posted anyway; for non-regular sequences the counts may be
-too low (7 of the 72 graphic sequences with \(n \le 6\)).</p>
+too low (7 of the 144 graphic sequences with \(n \le 6\)).</p>
 <div class="c">
 <div class="m">$$\forall i \in [0, n-1): \quad \sum_{v=i+1}^{n-1} M_{iv} > 0$$</div>
 <div class="sz"><span><b>Size:</b> \(n-1\) constraints</span><span><b>Arity:</b> \(n-1-i\) for vertex \(i\)</span></div>
@@ -182,7 +182,7 @@ too low (7 of the 72 graphic sequences with \(n \le 6\)).</p>
 <h3>2.1 Variables X</h3>
 <p>Row \(i\) lists the neighbors of vertex \(i\) as labels, in \(D\) slots (the largest
 degree); the \(D - \mathit{deg}_i\) unused slots hold 0. Example: neighbors \(\{2,5\}\) with
-\(D=4\) → <code>0 0 2 5</code> (Lex) or <code>2 5 0 0</code> (RevLex).</p>
+\(D=4\) → <code>2 5 0 0</code> (RevLex) or its mirror image <code>0 0 5 2</code> (Lex).</p>
 <div class="c">
 <div class="m">$$X = \{\, M_{ik} \;:\; 0 \le i < n,\; 0 \le k < D \,\}, \qquad
 \{v+1 : \{i,v\} \in E\} = \{M_{ik} : M_{ik} \neq 0\}$$</div>
@@ -229,11 +229,11 @@ the neighbors strictly ordered; padding zeros never match since labels are \(\ge
 </div>
 
 <h3 id="nei-layout">2.4 Row layout (simple graph) — <code>addLexRows</code>, <code>addRevLexRows</code></h3>
-<p>The zeros are fixed by position and the neighbors are strictly increasing. Together they
-give exactly \(\mathit{deg}_i\) distinct neighbors per row: no degree count and no
+<p>The zeros are fixed by position and the neighbors are strictly ordered: increasing before
+the zeros for RevLex, decreasing after them for Lex (the mirror image). Together they give exactly \(\mathit{deg}_i\) distinct neighbors per row: no degree count and no
 all-different are needed, and each neighbor set has a single row.</p>
 <div class="c">
-<div class="m">$$\text{Lex (0 0 2 5):}\quad M_{ik} = 0 \ (k < D-\mathit{deg}_i), \quad M_{i,D-\mathit{deg}_i} \ge 1, \quad M_{ik} < M_{i,k+1} \ (D-\mathit{deg}_i \le k < D-1)$$
+<div class="m">$$\text{Lex (0 0 5 2):}\quad M_{ik} = 0 \ (k < D-\mathit{deg}_i), \quad M_{i,D-1} \ge 1, \quad M_{ik} > M_{i,k+1} \ (D-\mathit{deg}_i \le k < D-1)$$
 $$\text{RevLex (2 5 0 0):}\quad M_{ik} = 0 \ (k \ge \mathit{deg}_i), \quad M_{i,0} \ge 1, \quad M_{ik} < M_{i,k+1} \ (0 \le k < \mathit{deg}_i - 1)$$</div>
 <div class="sz"><span><b>Size:</b> \(D\) constraints per row, \(nD\) in total (the "\(\ge 1\)" only when \(\mathit{deg}_i &gt; 0\))</span><span><b>Arity:</b> 1 or 2</span></div>
 <pre><code>// addRevLexRows
@@ -245,8 +245,8 @@ for (int k = 0; k &lt; last; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
 // addLexRows
 int D = M[i].length, first = D - deg[i];   // first neighbor slot
 for (int k = 0; k &lt; first; k++) cp.add(cp.eq(M[i][k], 0));
-if (deg[i] &gt; 0) cp.add(cp.ge(M[i][first], 1));
-for (int k = first; k + 1 &lt; D; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));</code></pre>
+if (deg[i] &gt; 0) cp.add(cp.ge(M[i][D - 1], 1));
+for (int k = first; k + 1 &lt; D; k++) cp.add(cp.gt(M[i][k], M[i][k + 1]));</code></pre>
 </div>
 
 <h3 id="nei-sb">2.5 Symmetry breaking (only pairs of equal degree)</h3>
@@ -281,11 +281,11 @@ the last slot they also first differ at \(w\). The fixed zeros are in the same s
 $$M_i^{-a}[k] = M_{i,k} + t_k\,(M_{i,k-1} - M_{ik}), \qquad t_k = \sum_{m=k}^{D-1} [M_{im} = a] = [k \le p], \qquad M_{i,-1} = 0$$</div>
 <div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2D\) variables (rows \(i\) and \(j\)), through two vectors of \(D\) expressions</span></div>
 <pre><code>if (deg[i] != deg[j]) continue;
-IloIntExpr[] ri = dropForRevLex(cp, M[i], j + 1);   // row i without j+1
-IloIntExpr[] rj = dropForRevLex(cp, M[j], i + 1);   // row j without i+1
+IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
 cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
 
-// dropForRevLex(cp, row, label): slots before the label move right, 0 enters slot 0
+// dropLabel(cp, row, label): slots before the label move right, 0 enters slot 0
 IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
 for (int k = D - 1; k &gt;= 0; k--) {
     atOrBefore = cp.sum(atOrBefore, cp.eq(row[k], label));
@@ -295,22 +295,24 @@ for (int k = D - 1; k &gt;= 0; k--) {
 </div>
 <p class="note">\(p\) is the slot holding the label. If it is not found, every \(t_k\) is 0 and
 the row is unchanged: no adjacency indicator is needed. The 0 enters at the front so that the
-freed slot is the last one compared by RevLex. Example: <code>2 5 0 0</code> without 5 →
+freed slot is the last one compared (both Lex and RevLex compare from the last slot). Example: <code>2 5 0 0</code> without 5 →
 <code>0 2 0 0</code>. Finds the same solutions as SB-RevLex on rebuilt rows.</p>
 
 <h4>SB-Dir-Lex — drop, then Lex on the rows (<code>addOptLexNeiDir</code>)</h4>
 <p>The mirror image for OptLex. Read left to right, the 0/1 rows first differ at the
-<i>smallest</i> vertex \(w\) of the symmetric difference; in the increasing rows the row holding
-\(w\) is the smaller one, hence the swapped arguments. <code>dropForLex</code> moves the slots
-after the label left and puts the 0 at the end, the last slot compared by Lex.</p>
+<i>smallest</i> vertex \(w\) of the symmetric difference. The Lex rows list the neighbors
+decreasing (<code>0 0 5 2</code>), so read from the last slot they give the smallest neighbor
+first and also first differ at \(w\); the row holding \(w\) is the smaller one, hence the
+swapped arguments. The same <code>dropLabel</code> is used: the freed slot is slot 0, the last
+one compared. Example: <code>0 0 5 2</code> without 5 → <code>0 0 0 2</code>.</p>
 <div class="c">
-<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad M_j^{-(i+1)} \;\le_{lex}\; M_i^{-(j+1)}$$
-$$M_i^{-a}[k] = M_{ik} + s_k\,(M_{i,k+1} - M_{ik}), \qquad s_k = \sum_{m=0}^{k} [M_{im} = a] = [k \ge p], \qquad M_{i,D} = 0$$</div>
+<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_j^{-(i+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_i^{-(j+1)}\big)$$
+$$M_i^{-a} \text{ as in SB-Dir-RevLex (same } \texttt{dropLabel}\text{)}$$</div>
 <div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2D\) variables, through two vectors of \(D\) expressions</span></div>
 <pre><code>if (deg[i] != deg[j]) continue;
-IloIntExpr[] ri = dropForLex(cp, M[i], j + 1);      // row i without j+1
-IloIntExpr[] rj = dropForLex(cp, M[j], i + 1);      // row j without i+1
-cp.add(cp.lexicographic(rj, ri));</code></pre>
+IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
+cp.add(cp.lexicographic(reverse(rj), reverse(ri)));</code></pre>
 </div>
 
 <h3 id="nei-conn">2.6 Connectivity — <code>addLargestNeighborAbove</code></h3>

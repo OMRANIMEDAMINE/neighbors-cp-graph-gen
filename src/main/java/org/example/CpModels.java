@@ -13,9 +13,9 @@ import ilog.cp.IloCP;
  * <ul>
  *   <li><b>Adjacency</b>: an n×n 0/1 matrix, {@code M[i][j] = 1} iff i and j are adjacent.</li>
  *   <li><b>Neighbors</b>: an n×D matrix (D = largest degree); row i lists the neighbors of
- *       vertex i as labels 1..n, empty slots hold 0. The neighbors are listed increasing,
- *       after the zeros for OptLex ({@code 0 0 2 5}), before them for OptRevLex
- *       ({@code 2 5 0 0}).</li>
+ *       vertex i as labels 1..n, empty slots hold 0. OptRevLex lists the neighbors
+ *       increasing, then the zeros ({@code 2 5 0 0}); OptLex is the mirror image, the zeros
+ *       then the neighbors decreasing ({@code 0 0 5 2}).</li>
  * </ul>
  *
  * <p>The file has three layers:
@@ -145,13 +145,16 @@ public class CpModels {
     //  holds exactly deg[i] distinct neighbors: no degree count, no all-different.
     // =========================================================================
 
-    /** OptLex layout: slots 0..D-deg[i]-1 are 0, then the neighbors strictly increasing: {@code 0 0 2 5}. */
+    /**
+     * OptLex layout, the mirror image of {@link #addRevLexRows}: slots 0..D-deg[i]-1 are 0,
+     * then the neighbors strictly decreasing: {@code 0 0 5 2}.
+     */
     private static void addLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         for (int i = 0; i < M.length; i++) {
             int D = M[i].length, first = D - deg[i];   // first neighbor slot
             for (int k = 0; k < first; k++) cp.add(cp.eq(M[i][k], 0));
-            if (deg[i] > 0) cp.add(cp.ge(M[i][first], 1));
-            for (int k = first; k + 1 < D; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
+            if (deg[i] > 0) cp.add(cp.ge(M[i][D - 1], 1));
+            for (int k = first; k + 1 < D; k++) cp.add(cp.gt(M[i][k], M[i][k + 1]));
         }
     }
 
@@ -224,8 +227,8 @@ public class CpModels {
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
                 if (deg[i] != deg[j]) continue;
-                IloIntExpr[] ri = dropForRevLex(cp, M[i], j + 1);   // row i without j+1
-                IloIntExpr[] rj = dropForRevLex(cp, M[j], i + 1);   // row j without i+1
+                IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+                IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
                 cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
             }
         }
@@ -234,14 +237,15 @@ public class CpModels {
     /**
      * Neighbors, OptLex posted directly on the rows. For every pair i &lt; j with
      * deg[i] = deg[j]: drop label j+1 from row i and label i+1 from row j (if found), then
-     * compare the two rows with Lex (first slot first), arguments swapped:
+     * compare the two rows from the last slot (smallest neighbor first), arguments swapped:
      * <pre>
-     *   (M[j] without i+1)  ≤lex  (M[i] without j+1)
+     *   reverse(M[j] without i+1)  ≤lex  reverse(M[i] without j+1)
      * </pre>
      * Read left to right, the 0/1 rows first differ at the SMALLEST vertex w of
      * N(i)\{j} Δ N(j)\{i}, and row i ≤ row j iff w ∈ N(j). The rows list the neighbors
-     * increasing, so they first differ at w too, and the row holding w is the SMALLER one,
-     * hence the swap: the same order as {@link #addOptLexNei}.
+     * decreasing ({@code 0 0 5 2}), so read from the last slot they first differ at w too,
+     * and the row holding w is the SMALLER one, hence the swap: the same order as
+     * {@link #addOptLexNei}.
      */
     private static void addOptLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         int n = deg.length;
@@ -249,18 +253,19 @@ public class CpModels {
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
                 if (deg[i] != deg[j]) continue;
-                IloIntExpr[] ri = dropForLex(cp, M[i], j + 1);      // row i without j+1
-                IloIntExpr[] rj = dropForLex(cp, M[j], i + 1);      // row j without i+1
-                cp.add(cp.lexicographic(rj, ri));
+                IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+                IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
+                cp.add(cp.lexicographic(reverse(rj), reverse(ri)));
             }
         }
     }
 
     /**
-     * For OptRevLex: the row without the slot p holding {@code label} (unchanged if the
-     * label is not in the row). Slots 0..p-1 move one slot right and a 0 enters slot 0, so
-     * the freed slot is the LAST one compared by RevLex. E.g. {@code 2 5 0 0} without 5 →
-     * {@code 0 2 0 0}.
+     * The row without the slot p holding {@code label} (unchanged if the label is not in
+     * the row). Slots 0..p-1 move one slot right and a 0 enters slot 0. Both OptLex and
+     * OptRevLex compare the rows from the last slot, so the freed slot is the LAST one
+     * compared. E.g. {@code 2 5 0 0} without 5 → {@code 0 2 0 0}; {@code 0 0 5 2} without 5
+     * → {@code 0 0 0 2}.
      * <pre>
      *   out[k] = row[k-1] if k ≤ p, else row[k]                   (row[-1] = 0)
      *   [k ≤ p] = [row[k] = label] + ... + [row[D-1] = label]     (0 for all k if absent)
@@ -268,7 +273,7 @@ public class CpModels {
      * The test "slot k is at or before the label" is built directly as a count from the
      * right instead of computing p as a number: same meaning, much better propagation.
      */
-    private static IloIntExpr[] dropForRevLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
+    private static IloIntExpr[] dropLabel(IloCP cp, IloIntExpr[] row, int label) throws IloException {
         int D = row.length;
         IloIntExpr[] out = new IloIntExpr[D];
         IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
@@ -276,28 +281,6 @@ public class CpModels {
             atOrBefore = cp.sum(atOrBefore, cp.eq(row[k], label));
             IloIntExpr prev = (k > 0) ? row[k - 1] : cp.constant(0);
             out[k] = cp.sum(row[k], cp.prod(atOrBefore, cp.diff(prev, row[k])));
-        }
-        return out;
-    }
-
-    /**
-     * For OptLex: the row without the slot p holding {@code label} (unchanged if the label
-     * is not in the row). Slots p+1.. move one slot left and a 0 enters the last slot, so
-     * the freed slot is the LAST one compared by Lex. E.g. {@code 0 0 2 5} without 2 →
-     * {@code 0 0 5 0}.
-     * <pre>
-     *   out[k] = row[k+1] if k ≥ p, else row[k]                   (row[D] = 0)
-     *   [k ≥ p] = [row[0] = label] + ... + [row[k] = label]       (0 for all k if absent)
-     * </pre>
-     */
-    private static IloIntExpr[] dropForLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
-        int D = row.length;
-        IloIntExpr[] out = new IloIntExpr[D];
-        IloIntExpr atOrAfter = cp.constant(0);    // [k ≥ p]
-        for (int k = 0; k < D; k++) {
-            atOrAfter = cp.sum(atOrAfter, cp.eq(row[k], label));
-            IloIntExpr next = (k + 1 < D) ? row[k + 1] : cp.constant(0);
-            out[k] = cp.sum(row[k], cp.prod(atOrAfter, cp.diff(next, row[k])));
         }
         return out;
     }

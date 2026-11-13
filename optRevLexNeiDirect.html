@@ -60,7 +60,7 @@ ol li,ul li{margin:4px 0}
 posts Codish's OptLex symmetry breaking (reversed form) and the upper off-diagonal
 connectivity constraint directly on the neighbor lists <code>M</code>, without rebuilding
 0/1 adjacency rows: <code>addRevLexRows</code>, <code>addOptRevLexNeiDir</code>,
-<code>dropForRevLex</code> and <code>addLargestNeighborAbove</code>.</p>
+<code>dropLabel</code> and <code>addLargestNeighborAbove</code>.</p>
 
 <div class="card">
 <b>What changed in this version</b>
@@ -73,7 +73,7 @@ connectivity constraint directly on the neighbor lists <code>M</code>, without r
   constraint, and the fixed zeros replace the degree count.</li>
   <li>Symmetry breaking compares <b>only vertices of equal degree</b>: only they can swap
   labels when the degrees are fixed.</li>
-  <li><b>Drop, then RevLex.</b> For each equal-degree pair, <code>dropForRevLex</code> removes
+  <li><b>Drop, then RevLex.</b> For each equal-degree pair, <code>dropLabel</code> removes
   the slot holding j+1 from row i and the slot holding i+1 from row j (if found); the two
   rows are then compared with RevLex. It works on the whole rows and needs no adjacency
   indicator.</li>
@@ -108,7 +108,7 @@ private static void addRevLexRows(IloCP cp, IloIntVar[][] M, int[] deg) throws I
 }</code></pre>
 <div class="tbl"><table>
 <tr><th class="l">model</th><th class="l">layout</th><th>{1, 4, 5}, D = 4</th></tr>
-<tr><td class="l">OptLex (<code>addLexRows</code>)</td><td class="l">zeros first, then neighbors increasing</td><td><code>0 1 4 5</code></td></tr>
+<tr><td class="l">OptLex (<code>addLexRows</code>)</td><td class="l">zeros first, then neighbors decreasing (mirror image)</td><td><code>0 5 4 1</code></td></tr>
 <tr class="hl"><td class="l">OptRevLex (<code>addRevLexRows</code>)</td><td class="l">neighbors increasing, then zeros</td><td><code>1 4 5 0</code></td></tr>
 </table></div>
 <p><b>Why this is enough for a simple graph.</b></p>
@@ -155,8 +155,8 @@ slots of both rows (equal degrees), so they never decide.</p>
     for (int i = 0; i &lt; n; i++) {
         for (int j = i + 1; j &lt; n; j++) {
             if (deg[i] != deg[j]) continue;
-            IloIntExpr[] ri = dropForRevLex(cp, M[i], j + 1);   // row i without j+1
-            IloIntExpr[] rj = dropForRevLex(cp, M[j], i + 1);   // row j without i+1
+            IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+            IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
             cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
         }
     }
@@ -172,8 +172,8 @@ slots of both rows (equal degrees), so they never decide.</p>
   variables are created.</li>
 </ul>
 
-<h2>5. <code>dropForRevLex</code></h2>
-<pre><code>private static IloIntExpr[] dropForRevLex(IloCP cp, IloIntExpr[] row, int label) throws IloException {
+<h2>5. <code>dropLabel</code></h2>
+<pre><code>private static IloIntExpr[] dropLabel(IloCP cp, IloIntExpr[] row, int label) throws IloException {
     int D = row.length;
     IloIntExpr[] out = new IloIntExpr[D];
     IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
@@ -206,9 +206,10 @@ slot says which input slot it takes:</p>
   slot must be at the front: it is then the last slot compared, and it is in the same place
   in both rows. Shifting the other way (0 at the end) gives the same solutions but the
   freed slot is compared first, and the run takes 104.9 s instead of 15.0 s.</li>
-  <li><b>OptLex</b> (<code>dropForLex</code>) is the mirror image: Lex compares from the first
-  slot, so the slots after p move left and the 0 enters at the end, with
-  [k ≥ p] counted from the left.</li>
+  <li><b>OptLex uses the same <code>dropLabel</code>.</b> Its rows are the mirror image
+  (<code>0 0 5 2</code>: zeros, then neighbors decreasing) and are also compared from the last
+  slot, so the freed slot must be at the front too. Example: <code>0 0 5 2</code> without 5 →
+  <code>0 0 0 2</code>.</li>
   <li><code>cp.eq(row[k], label)</code> is a constraint, but in CP Optimizer a constraint is
   also a 0/1 expression (<code>IloConstraint extends IloIntExpr</code>), so it can be summed
   and multiplied.</li>
@@ -229,14 +230,14 @@ slot says which input slot it takes:</p>
 (1, 2), (3, 4), (3, 5), (4, 5).</p>
 
 <h3>Pair (3, 4): adjacent</h3>
-<p><code>dropForRevLex</code> on row 3 = <code>1 4</code>, label 4 (p = 1), slots from the right:</p>
+<p><code>dropLabel</code> on row 3 = <code>1 4</code>, label 4 (p = 1), slots from the right:</p>
 <div class="tbl"><table>
 <tr><th>k</th><th>row[k]</th><th>row[k] = 4?</th><th>[k ≤ p]</th><th>out[k]</th></tr>
 <tr class="hl"><td>1</td><td>4</td><td>yes</td><td>1</td><td>row[0] = 1</td></tr>
 <tr class="hl"><td>0</td><td>1</td><td>no</td><td>1</td><td>row[−1] = 0</td></tr>
 </table></div>
 <p>Result <code>0 1</code>: N(3) \ {4} = {1}. ✓</p>
-<p><code>dropForRevLex</code> on row 4 = <code>3 5</code>, label 3 (p = 0):</p>
+<p><code>dropLabel</code> on row 4 = <code>3 5</code>, label 3 (p = 0):</p>
 <div class="tbl"><table>
 <tr><th>k</th><th>row[k]</th><th>row[k] = 3?</th><th>[k ≤ p]</th><th>out[k]</th></tr>
 <tr><td>1</td><td>5</td><td>no</td><td>0</td><td>row[1] = 5</td></tr>
@@ -303,7 +304,7 @@ does not help. The program posts the constraint for every sequence anyway: count
 correct for regular sequences and may be too low for non-regular ones.</p>
 <p class="muted">Checked by brute force on all graphic sequences with n ≤ 6: with
 connectivity on, Adj / Nei / NeiDir agree on every sequence, and are exact for every
-regular one; 7 of the 72 sequences, all non-regular, lose connected graphs. Connected regular counts: 2 for n = 6, d = 3; 14 for n = 8, d = 3; 13 for n = 8,
+regular one; 7 of the 144 sequences, all non-regular, lose connected graphs. Connected regular counts: 2 for n = 6, d = 3; 14 for n = 8, d = 3; 13 for n = 8,
 d = 4; 81 for n = 9, d = 4; 129 for n = 10, d = 3.</p>
 
 <h2>8. Two shortcuts that lose graphs</h2>
@@ -323,8 +324,8 @@ slot.</p>
 <p>An earlier variant replaced label j+1 by 0 where it stood
 (<code>row[k] · [row[k] ≠ j+1]</code>) instead of deleting it. The 0 then stays in the
 middle of the list, so two lists are compared slot by slot at shifted positions. Tested, it
-lost graphs in 56 of the 72 graphic sequences with n ≤ 6, even the 5-cycle (0 solutions
-instead of 1). <code>dropForRevLex</code> finds exactly the same solutions as
+lost graphs in 56 of the 144 graphic sequences with n ≤ 6, even the 5-cycle (0 solutions
+instead of 1). <code>dropLabel</code> finds exactly the same solutions as
 <code>addOptRevLexNei</code>.</p>
 
 <h2>9. Try it</h2>
@@ -378,7 +379,7 @@ instead of 1). <code>dropForRevLex</code> finds exactly the same solutions as
       `label ${lab} ${found ? "found at slot " + row.indexOf(lab) : "not found: nothing is dropped"}</p>` +
       `<div class="tbl"><table><tr><th>k</th><th>row[k]</th><th>row[k] = ${lab}?</th>` +
       `<th>[k ≤ p]</th><th>out[k]</th></tr>${rows}</table></div>` +
-      `<p>dropForRevLex = <code>${out.join(" ")}</code> · compared by RevLex as ` +
+      `<p>dropLabel = <code>${out.join(" ")}</code> · compared by RevLex as ` +
       `<code>${out.slice().reverse().join(" ")}</code></p>` +
       `<p>Connectivity: ${con}</p>`;
   }
