@@ -23,11 +23,40 @@ public class Main {
     /**
      * Sequences run when no argument is given, in increasing order: vertex i has degree
      * deg[i]. Non-graphic sequences are skipped.
+     *
+     * <p>Adj vs Nei benchmark set, grouped by graph family. With CONNECTIVITY = true only the
+     * regular families (1-4) give trustworthy counts.
      */
     private static final int[][] DEFAULT_SEQUENCES = {
-            //regular(6, 4), regular(7, 4), regular(8, 4), regular(9, 4), regular(10, 4), regular(12, 4),
-           // {2, 2, 2, 3, 3, 4}, {2, 2, 2, 2, 3, 3, 3, 3}, {2, 2, 3, 3, 3, 4, 4, 5},
-            {1,2,2,3},
+            // 0. warm-up (JIT + CP Optimizer start-up; ignore this row)
+            regular(6, 3),
+            // 1. cubic graphs
+            regular(8, 3), regular(10, 3), regular(12, 3), regular(14, 3),
+            // 2. quartic graphs
+            regular(9, 4), regular(10, 4), regular(11, 4), regular(12, 4),
+            // 3. 2-regular graphs (unions of cycles)
+            regular(10, 2), regular(12, 2), regular(15, 2),
+            // 4. complement pairs: d-regular vs (n-1-d)-regular, same graphs, different density
+            //    (partners N10_d3, N10_d4, N12_d3 are in families 1 and 2)
+            regular(10, 6), regular(10, 5), regular(12, 8),
+            // 5. tree degree sequences (sum = 2n-2)
+            {1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4},
+            {1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4},
+            // 6. bi-degree graphs
+            {2, 2, 2, 2, 2, 2, 3, 3, 3, 3},
+            {2, 2, 2, 2, 2, 2, 2, 2, 4, 4, 4, 4},
+            // 7. heterogeneous (hubs + leaves)
+            {1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 5},
+            {1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 6},
+            {1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4, 5, 7},
+            // 8. unigraphic (exactly one graph): star, antiregular n=10 and n=14, cocktail party
+            {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 11},
+            {1, 2, 3, 4, 5, 5, 6, 7, 8, 9},
+            {1, 2, 3, 4, 5, 6, 7, 7, 8, 9, 10, 11, 12, 13},
+            regular(10, 8),
+            // optional heavy instances (over 60 s for the four models in calibration):
+            // regular(12, 7),                                  // complement of N12_d4
+            // {3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4},            // bi-degree
     };
 
     /**
@@ -37,7 +66,7 @@ public class Main {
     private static final boolean CONNECTIVITY = false;
 
     /** true = print every graph found (slower, and included in the time). */
-    private static final boolean PRINT_SOLUTIONS = true;
+    private static final boolean PRINT_SOLUTIONS = false;
 
     /** A model of {@link CpModels}: solves one degree sequence, printing under title if not null. */
     private interface Model {
