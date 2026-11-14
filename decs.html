@@ -10,85 +10,166 @@
   onload="renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false}]})"></script>
 <style>
 :root{
-  --bg:#fbfaf7; --fg:#1f2328; --muted:#5b6470; --card:#ffffff; --line:#e3e0d8;
-  --accent:#2f6fb3; --code:#f3f1ec; --math:#f4f7fb;
+  --bg:#f7f6f2; --fg:#1d2126; --muted:#5d6672; --card:#ffffff; --line:#e2dfd6; --soft:#efede6;
+  --accent:#2b5f9e; --accent-soft:#e6eef8; --code:#f2f0ea; --math:#f3f6fa;
+  --win:#1c7a4a; --lose:#a8432f; --tie:#5d6672; --warn:#b5781f;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#16181c; --fg:#e6e6e6; --muted:#9aa3ad; --card:#1e2126; --line:#30343b;
-    --accent:#6ea8e8; --code:#262a30; --math:#1b2330;
+    --bg:#15171b; --fg:#e4e6e9; --muted:#9aa3ad; --card:#1d2025; --line:#2f333a; --soft:#23272d;
+    --accent:#79aee8; --accent-soft:#1f2a38; --code:#24282e; --math:#1a2230;
+    --win:#5cc28f; --lose:#ef8a73; --tie:#9aa3ad; --warn:#e0a548;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#16181c; --fg:#e6e6e6; --muted:#9aa3ad; --card:#1e2126; --line:#30343b;
-  --accent:#6ea8e8; --code:#262a30; --math:#1b2330;
+  --bg:#15171b; --fg:#e4e6e9; --muted:#9aa3ad; --card:#1d2025; --line:#2f333a; --soft:#23272d;
+  --accent:#79aee8; --accent-soft:#1f2a38; --code:#24282e; --math:#1a2230;
+  --win:#5cc28f; --lose:#ef8a73; --tie:#9aa3ad; --warn:#e0a548;
 }
 *{box-sizing:border-box}
+html{scroll-padding-top:72px}
 body{margin:0;background:var(--bg);color:var(--fg);
   font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:900px;margin:0 auto;padding:32px 16px 64px}
-h1{font-size:1.8rem;margin:0 0 4px}
-h2{font-size:1.35rem;margin:48px 0 8px;padding-top:12px;border-top:2px solid var(--line)}
-h3{font-size:1.1rem;margin:32px 0 6px}
-h4{font-size:1rem;margin:22px 0 4px;color:var(--accent)}
-p.lead{color:var(--muted);margin-top:0}
-code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.88em}
+header.top{max-width:1040px;margin:0 auto;padding:36px 16px 8px}
+.kicker{font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+h1{font-size:2rem;line-height:1.2;margin:0 0 8px}
+.lead{color:var(--muted);margin:0 0 14px;max-width:820px}
+.meta{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:.85rem;color:var(--muted);margin:0 0 4px}
+.meta b{color:var(--fg);font-weight:600}
+
+/* tabs */
+.tabbar{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line)}
+.tabs{max-width:1040px;margin:0 auto;padding:0 16px;display:flex;gap:4px;overflow-x:auto}
+.tabs button{font:inherit;font-weight:600;font-size:.95rem;color:var(--muted);background:none;border:0;
+  border-bottom:3px solid transparent;padding:14px 14px 11px;cursor:pointer;white-space:nowrap}
+.tabs button:hover{color:var(--fg)}
+.tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-4px;border-radius:6px}
+main{max-width:1040px;margin:0 auto;padding:8px 16px 72px}
+[role="tabpanel"][hidden]{display:none}
+.toc{display:flex;flex-wrap:wrap;gap:6px 8px;margin:22px 0 4px;padding:0;list-style:none}
+.toc a{display:inline-block;font-size:.85rem;padding:3px 10px;border:1px solid var(--line);border-radius:999px;
+  color:var(--fg);text-decoration:none;background:var(--card)}
+.toc a:hover{border-color:var(--accent);color:var(--accent)}
+
+h2{font-size:1.4rem;margin:44px 0 10px;padding-top:14px;border-top:1px solid var(--line)}
+h3{font-size:1.1rem;margin:28px 0 8px}
+h4{font-size:1rem;margin:22px 0 6px;color:var(--accent)}
+p{max-width:860px}
+a{color:var(--accent)}
+code,pre{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.86em}
 code{background:var(--code);padding:1px 5px;border-radius:4px}
 pre{background:var(--code);padding:12px 16px;border-radius:0 0 8px 8px;overflow-x:auto;line-height:1.45;margin:0}
 pre code{background:none;padding:0}
 .c{margin:10px 0 18px;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
+.c > pre{border-radius:0}
 .m{background:var(--math);padding:6px 16px;overflow-x:auto;border-bottom:1px solid var(--line)}
 .m .katex-display{margin:.5em 0}
-.warn{border-left:4px solid #c9822b;background:var(--code);padding:8px 12px;border-radius:0 6px 6px 0;margin:8px 0 12px}
-.sz{display:flex;flex-wrap:wrap;gap:4px 24px;padding:6px 16px;font-size:.9rem;border-bottom:1px solid var(--line);background:var(--card)}
-.sz:not(.c .sz){border:1px solid var(--line);border-radius:6px;margin:8px 0}
-.note{color:var(--muted);font-size:.93rem;margin:6px 0 0}
-table{border-collapse:collapse;width:100%;font-size:.92rem;margin:10px 0}
-th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}
-th{background:var(--code)}
-.tw{overflow-x:auto}
-nav ul{columns:2;padding-left:18px;margin:8px 0}
-@media (max-width:600px){nav ul{columns:1}}
+.sz{display:flex;flex-wrap:wrap;gap:4px 24px;padding:7px 16px;font-size:.88rem;border-bottom:1px solid var(--line);background:var(--card)}
+.sz b{font-weight:600}
+.note{color:var(--muted);font-size:.92rem}
+.callout{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:0 8px 8px 0;margin:12px 0;max-width:900px}
+.callout.warn{border-left-color:var(--warn);background:var(--soft)}
+.tw{overflow-x:auto;margin:10px 0 16px}
+table{border-collapse:collapse;width:100%;font-size:.9rem;background:var(--card)}
+th,td{border:1px solid var(--line);padding:6px 9px;text-align:left;vertical-align:top}
+th{background:var(--soft);font-weight:600}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+td.win{color:var(--win);font-weight:600}
+td.lose{color:var(--lose);font-weight:600}
+td.tie{color:var(--tie)}
+.bad{color:var(--lose);font-weight:600}
+.muted{color:var(--muted);font-weight:400}
+.tag{display:inline-block;font-size:.72rem;padding:0 6px;border-radius:999px;background:var(--soft);color:var(--muted);margin-left:4px}
+.kept{color:var(--win);font-weight:600}
+.pruned{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin:12px 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h4{margin-top:0}
+.mat{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9rem;line-height:1.5;white-space:pre;background:var(--code);
+  padding:8px 12px;border-radius:6px;display:inline-block}
+.csp{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px 16px 10px;margin:12px 0}
+.csp dt{font-weight:600;margin-top:10px}
+.csp dd{margin:2px 0 0 0}
+.legend{font-size:.85rem;color:var(--muted);margin:4px 0 0}
+footer{max-width:1040px;margin:0 auto;padding:0 16px 40px;color:var(--muted);font-size:.85rem}
+@media (max-width:600px){h1{font-size:1.6rem}.tabs button{padding:12px 10px 9px}}
 </style>
 </head>
 <body>
+
+<header class="top">
+<p class="kicker">neighbors-cp-graph-gen · technical documentation</p>
+<h1>Adj and Nei: two CP models for graphs with a given degree sequence</h1>
+<p class="lead">Both models enumerate, up to isomorphism, the simple undirected graphs whose vertex
+\(i\) has degree \(\mathit{deg}_i\), for a degree sequence
+\(\mathit{deg} = (\mathit{deg}_0 \le \dots \le \mathit{deg}_{n-1})\). They differ only in how a
+graph is encoded: <b>Adj</b> uses the \(n \times n\) adjacency matrix, <b>Nei</b> lists the
+neighbors of each vertex. Each model comes with the same two symmetry breakings (OptLex and
+OptRevLex) and an optional connectivity constraint.</p>
+<div class="meta">
+  <span>Code: <b><code>CpModels.java</code></b></span>
+  <span>Branch <b>newpaper</b>, commit <b>3f2f30f</b></span>
+  <span>Solver: <b>IBM CP Optimizer 22.1.1</b></span>
+  <span>Updated <b>2026-11-13</b></span>
+</div>
+</header>
+
+<div class="tabbar">
+  <div class="tabs" role="tablist" aria-label="Models">
+    <button role="tab" id="tab-adj" aria-controls="adj" aria-selected="true" tabindex="0">Adj model</button>
+    <button role="tab" id="tab-nei" aria-controls="nei" aria-selected="false" tabindex="-1">Nei model</button>
+    <button role="tab" id="tab-cmp" aria-controls="cmp" aria-selected="false" tabindex="-1">Adj vs Nei</button>
+  </div>
+</div>
+
 <main>
 
-<h1>CP models (X, D, C): Adj and Nei</h1>
-<p class="lead">The two encodings used in <code>CpModels.java</code> to generate, up to
-isomorphism, the simple graphs with a given degree sequence
-\(\mathit{deg} = (\mathit{deg}_0 \le \dots \le \mathit{deg}_{n-1})\): vertex \(i\) has degree
-\(\mathit{deg}_i\). Each constraint is given first as a formula, then as the Java
-(CP Optimizer) code that posts it. Vertices are indexed \(0..n-1\) as in the code; in the Nei
-model vertex \(i\) is written with the label \(i+1\), so that 0 can mean "empty slot".
-\(D = \max_i \mathit{deg}_i\) is the largest degree, and
-\(P = |\{(i,j) : i &lt; j,\ \mathit{deg}_i = \mathit{deg}_j\}|\) the number of equal-degree pairs
-(\(P = n(n-1)/2\) for a regular sequence).</p>
+<!-- ===================================================================== ADJ -->
+<section role="tabpanel" id="adj" aria-labelledby="tab-adj">
 
-<nav>
-<ul>
-  <li><a href="#adj">1. Adjacency model (Adj)</a></li>
-  <li><a href="#adj-sb">1.4 Adj symmetry breaking</a></li>
-  <li><a href="#adj-conn">1.5 Adj connectivity</a></li>
-  <li><a href="#nei">2. Neighbors model (Nei)</a></li>
-  <li><a href="#nei-sb">2.4 Nei symmetry breaking</a></li>
-  <li><a href="#nei-conn">2.5 Nei connectivity</a></li>
-  <li><a href="#sizes">3. Size summary</a></li>
-  <li><a href="#configs">4. Models</a></li>
+<ul class="toc">
+  <li><a href="#adj-enc">1. Encoding</a></li>
+  <li><a href="#adj-xd">2. Variables and domains</a></li>
+  <li><a href="#adj-base">3. Base constraints</a></li>
+  <li><a href="#adj-sb">4. Symmetry breaking</a></li>
+  <li><a href="#adj-con">5. Connectivity</a></li>
+  <li><a href="#adj-full">6. Complete models</a></li>
+  <li><a href="#adj-ex">7. Example</a></li>
+  <li><a href="#adj-res">8. Results</a></li>
 </ul>
-</nav>
 
-<p class="note"><b>Size</b> = number of constraints posted by the code. <b>Arity</b> = number of
-decision variables in the scope of one constraint (for expressions such as <code>count</code>,
-the variables they read).</p>
+<h2 id="adj-enc">1. Encoding</h2>
+<p>A graph on \(n\) vertices is its adjacency matrix: one 0/1 variable per ordered pair of
+vertices. Vertices are indexed \(0..n-1\) in the formulas and the code, and numbered
+\(1..n\) in the examples.</p>
+<div class="grid2">
+  <div class="card">
+    <h4>The path 1–5–3–4–2</h4>
+    <p class="note">Degree sequence \((1,1,2,2,2)\): vertices 1 and 2 are the ends.</p>
+    <div class="mat">    1 2 3 4 5
+1 │ 0 0 0 0 1
+2 │ 0 0 0 1 0
+3 │ 0 0 0 1 1
+4 │ 0 1 1 0 0
+5 │ 1 0 1 0 0</div>
+  </div>
+  <div class="card">
+    <h4>Notation</h4>
+    <ul>
+      <li>\(n\): number of vertices; \(\mathit{deg}_i\): degree of vertex \(i\).</li>
+      <li>\(P = |\{(i,j) : i &lt; j,\ \mathit{deg}_i = \mathit{deg}_j\}|\): equal-degree pairs
+      (\(P = n(n-1)/2\) for a regular sequence).</li>
+      <li><b>Size</b>: number of constraints posted. <b>Arity</b>: number of decision variables
+      in the scope of one constraint.</li>
+    </ul>
+  </div>
+</div>
 
-<!-- ===================================================================== -->
-<h2 id="adj">1. Adjacency model (Adj)</h2>
-
-<h3>1.1 Variables X</h3>
+<h2 id="adj-xd">2. Variables and domains</h2>
 <div class="c">
-<div class="m">$$X = \{\, M_{ij} \;:\; 0 \le i, j < n \,\}, \qquad M_{ij} = 1 \iff \{i,j\} \in E$$</div>
-<div class="sz"><span><b>|X|</b> = \(n^2\) variables</span></div>
+<div class="m">$$X = \{\, M_{ij} : 0 \le i, j < n \,\}, \qquad D(M_{ij}) = \{0, 1\}, \qquad M_{ij} = 1 \iff \{i,j\} \in E$$</div>
+<div class="sz"><span><b>|X|</b> = \(n^2\) variables</span><span><b>|D|</b> = 2 values per variable</span></div>
 <pre><code>IloIntVar[][] M = new IloIntVar[n][];
 for (int i = 0; i &lt; n; i++) {
     M[i] = cp.intVarArray(n, 0, 1);
@@ -96,262 +177,634 @@ for (int i = 0; i &lt; n; i++) {
 }</code></pre>
 </div>
 
-<h3>1.2 Domains D</h3>
-<div class="c">
-<div class="m">$$D(M_{ij}) = \{0, 1\}$$</div>
-<div class="sz"><span><b>|D|</b> = 2 values per variable</span></div>
-<pre><code>cp.intVarArray(n, 0, 1)</code></pre>
-</div>
+<h2 id="adj-base">3. Base constraints — <code>buildAdjacencyModel</code></h2>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>Constraint</th><th>Formula</th><th class="num">Size</th><th class="num">Arity</th></tr></thead>
+<tbody>
+<tr><td>A1</td><td>No self-loop</td><td>\(M_{ii} = 0\)</td><td class="num">\(n\)</td><td class="num">1</td></tr>
+<tr><td>A2</td><td>Degree</td><td>\(\sum_j M_{ij} = \mathit{deg}_i\)</td><td class="num">\(n\)</td><td class="num">\(n\)</td></tr>
+<tr><td>A3</td><td>Undirected</td><td>\(M_{ij} = M_{ji},\ i &lt; j\)</td><td class="num">\(n(n-1)/2\)</td><td class="num">2</td></tr>
+</tbody></table></div>
 
-<h3>1.3 Constraints C (base model, <code>buildAdjacencyModel</code>)</h3>
-
-<h4>C1 — No self-loop (zero diagonal)</h4>
+<h4>A1 — No self-loop</h4>
 <div class="c">
 <div class="m">$$\forall i \in [0,n): \quad M_{ii} = 0$$</div>
-<div class="sz"><span><b>Size:</b> \(n\) constraints</span><span><b>Arity:</b> 1</span></div>
+<div class="sz"><span><b>Size:</b> \(n\)</span><span><b>Arity:</b> 1</span></div>
 <pre><code>cp.add(cp.eq(M[i][i], 0));              // no self-loop</code></pre>
 </div>
 
-<h4>C2 — Degree</h4>
+<h4>A2 — Degree</h4>
 <div class="c">
 <div class="m">$$\forall i \in [0,n): \quad \sum_{j=0}^{n-1} M_{ij} = \mathit{deg}_i$$</div>
-<div class="sz"><span><b>Size:</b> \(n\) constraints</span><span><b>Arity:</b> \(n\) (a whole row, diagonal included)</span></div>
+<div class="sz"><span><b>Size:</b> \(n\)</span><span><b>Arity:</b> \(n\) (a whole row)</span></div>
 <pre><code>cp.addEq(cp.sum(M[i]), deg[i]);         // degree</code></pre>
 </div>
 
-<h4>C3 — Symmetry (undirected graph)</h4>
+<h4>A3 — Undirected graph</h4>
 <div class="c">
 <div class="m">$$\forall\, 0 \le i < j < n: \quad M_{ij} = M_{ji}$$</div>
-<div class="sz"><span><b>Size:</b> \(n(n-1)/2\) constraints</span><span><b>Arity:</b> 2</span></div>
-<pre><code>for (int i = 0; i &lt; n; i++) {
-    for (int j = i + 1; j &lt; n; j++) {
-        cp.add(cp.eq(M[i][j], M[j][i]));    // undirected
-    }
-}</code></pre>
+<div class="sz"><span><b>Size:</b> \(n(n-1)/2\)</span><span><b>Arity:</b> 2</span></div>
+<pre><code>for (int i = 0; i &lt; n; i++)
+    for (int j = i + 1; j &lt; n; j++)
+        cp.add(cp.eq(M[i][j], M[j][i]));    // undirected</code></pre>
 </div>
 
-<h3 id="adj-sb">1.4 Symmetry breaking</h3>
-<p>Notation: \(M_i^{\setminus\{i,j\}}\) is row \(i\) with columns \(i\) and \(j\) removed
-(<code>without</code>), and \(\operatorname{rev}(\cdot)\) reads a vector right to left
-(<code>reverse</code>). Posted only when \(n \ge 3\), and <b>only for pairs of equal
-degree</b>: with fixed degrees, only equal-degree vertices can swap labels, so ordering other
-pairs would lose graphs.</p>
+<h2 id="adj-sb">4. Symmetry breaking</h2>
+<p>Relabelling the vertices gives another matrix of the same graph. Codish et al.'s OptLex
+removes most of these copies by ordering the rows: for every pair \(i &lt; j\), row \(i\) is
+compared with row \(j\) <b>with columns \(i\) and \(j\) removed</b>. OptRevLex reads the rows
+from the last column instead of the first.</p>
+<div class="callout"><b>Only pairs of equal degree.</b> With a fixed degree sequence, swapping two
+vertices of different degrees is not a symmetry (it breaks \(\mathit{deg}\)), so ordering such
+rows would lose graphs. Both orders are posted only for pairs with
+\(\mathit{deg}_i = \mathit{deg}_j\), and only when \(n \ge 3\).</div>
+<p>Notation: \(M_i^{\setminus\{i,j\}}\) is row \(i\) without columns \(i\) and \(j\)
+(<code>without</code>); \(\operatorname{rev}\) reads a vector from the end (<code>reverse</code>).</p>
 
-<h4>SB-RevLex — <code>addOptRevLex</code></h4>
+<h4>OptLex — <code>addOptLex</code></h4>
 <div class="c">
-<div class="m">$$\forall\, 0 \le i < j < n,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_i^{\setminus\{i,j\}}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_j^{\setminus\{i,j\}}\big)$$</div>
-<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2(n-2)\): two vectors of length \(n-2\)</span></div>
-<pre><code>for (int i = 0; i &lt; n; i++) {
-    for (int j = i + 1; j &lt; n; j++) {
-        if (deg[i] != deg[j]) continue;
-        cp.add(cp.lexicographic(reverse(without(A[i], i, j)), reverse(without(A[j], i, j))));
-    }
-}</code></pre>
-</div>
-
-<h4>SB-Lex — <code>addOptLex</code></h4>
-<div class="c">
-<div class="m">$$\forall\, 0 \le i < j < n,\ \mathit{deg}_i = \mathit{deg}_j: \quad M_i^{\setminus\{i,j\}} \;\le_{lex}\; M_j^{\setminus\{i,j\}}$$</div>
-<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2(n-2)\)</span></div>
+<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad M_i^{\setminus\{i,j\}} \;\le_{lex}\; M_j^{\setminus\{i,j\}}$$</div>
+<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints</span><span><b>Arity:</b> \(2(n-2)\)</span></div>
 <pre><code>if (deg[i] != deg[j]) continue;
 cp.add(cp.lexicographic(without(A[i], i, j), without(A[j], i, j)));</code></pre>
 </div>
 
-<h3 id="adj-conn">1.5 Connectivity (upper off-diagonal) — <code>addUpperOffDiagonal</code></h3>
-<p>Every vertex except the last has a neighbor with a larger index.</p>
-<p class="warn"><strong>RevLex only, exact for regular sequences only.</strong> Posted with
-OptRevLex only. With a regular sequence any vertex can take any label and the counts are exact.
-With unequal degrees only equal-degree vertices can swap labels, and some connected graphs have no
-valid labelling: e.g. \(K_{2,3}\) for \(\mathit{deg} = (2,2,2,3,3)\), where vertex 4 only has
-neighbors 1, 2, 3. The constraint is posted anyway; for non-regular sequences the counts may be
-too low (7 of the 144 graphic sequences with \(n \le 6\)).</p>
+<h4>OptRevLex — <code>addOptRevLex</code></h4>
+<div class="c">
+<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_i^{\setminus\{i,j\}}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_j^{\setminus\{i,j\}}\big)$$</div>
+<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints</span><span><b>Arity:</b> \(2(n-2)\)</span></div>
+<pre><code>if (deg[i] != deg[j]) continue;
+cp.add(cp.lexicographic(reverse(without(A[i], i, j)), reverse(without(A[j], i, j))));</code></pre>
+</div>
+<div class="callout"><b>Partial symmetry breaking.</b> Both orders are <b>sound</b>: no graph is
+lost. They are not <b>complete</b>: a graph can still be found several times, with different
+labellings. The results therefore count <i>solutions</i>, not distinct graphs. Example: there are
+6 non-isomorphic 3-regular graphs on 8 vertices; OptLex finds 13 solutions and OptRevLex 15.</div>
+
+<h2 id="adj-con">5. Connectivity — <code>addUpperOffDiagonal</code> (OptRevLex only)</h2>
+<p>Restricts the search to connected graphs: every vertex except the last has a neighbor with a
+larger index.</p>
 <div class="c">
 <div class="m">$$\forall i \in [0, n-1): \quad \sum_{v=i+1}^{n-1} M_{iv} > 0$$</div>
-<div class="sz"><span><b>Size:</b> \(n-1\) constraints</span><span><b>Arity:</b> \(n-1-i\) for vertex \(i\)</span></div>
+<div class="sz"><span><b>Size:</b> \(n-1\)</span><span><b>Arity:</b> \(n-1-i\) for vertex \(i\)</span></div>
 <pre><code>for (int i = 0; i &lt; n - 1; i++) {
     IloIntExpr[] upper = new IloIntExpr[n - 1 - i];
     for (int v = i + 1; v &lt; n; v++) upper[v - i - 1] = A[i][v];
     cp.add(cp.gt(cp.sum(upper), 0));
 }</code></pre>
 </div>
+<div class="callout warn"><b>Safe for regular sequences only.</b> It is valid with OptRevLex.
+With a regular sequence any vertex can take any label, so no connected graph is lost. With unequal
+degrees only equal-degree vertices can swap labels, and some connected graphs have no valid
+labelling: e.g. \(K_{2,3}\) for \((2,2,2,3,3)\), where vertex 4 has neighbors 1, 2, 3 only. The
+constraint is posted anyway; for non-regular sequences the counts may be too low (7 of the 144
+graphic sequences with \(n \le 6\)).</div>
 
-<!-- ===================================================================== -->
-<h2 id="nei">2. Neighbors model (Nei)</h2>
+<h2 id="adj-full">6. Complete models</h2>
+<div class="grid2">
+<dl class="csp">
+  <dt><code>optLexAdj(deg)</code></dt>
+  <dd>\(X\): \(M_{ij}\), \(n^2\) variables, \(D = \{0,1\}\)</dd>
+  <dd>\(C\): A1 + A2 + A3 + OptLex</dd>
+  <dd>Size: \(2n + n(n-1)/2 + P\)</dd>
+</dl>
+<dl class="csp">
+  <dt><code>optRevLexAdj(deg, connectivity)</code></dt>
+  <dd>\(X\): \(M_{ij}\), \(n^2\) variables, \(D = \{0,1\}\)</dd>
+  <dd>\(C\): A1 + A2 + A3 + OptRevLex (+ connectivity)</dd>
+  <dd>Size: \(2n + n(n-1)/2 + P\) (+ \(n-1\))</dd>
+</dl>
+</div>
+<pre style="border-radius:8px"><code>public static Result optRevLexAdj(int[] deg, boolean connectivity, String title) throws IloException {
+    IloCP cp = new IloCP();
+    IloIntVar[][] M = buildAdjacencyModel(cp, deg);
+    addOptRevLex(cp, M, deg);
+    if (connectivity) addUpperOffDiagonal(cp, M);
+    return solve(cp, M, false, title);
+}</code></pre>
+<p class="note">Every model is solved with the same settings: depth-first search, default
+inference level <code>Low</code>, all solutions enumerated.</p>
 
-<h3>2.1 Variables X</h3>
-<p>Row \(i\) lists the neighbors of vertex \(i\) as labels, in \(D\) slots (the largest
-degree); the \(D - \mathit{deg}_i\) unused slots hold 0. The position of the zeros depends on
-the order: RevLex lists the neighbors increasing, then the zeros; Lex is the mirror image.
-Example: neighbors \(\{2,5\}\) with \(D=4\) → <code>2 5 0 0</code> (RevLex) or
-<code>0 0 5 2</code> (Lex). Each order has its own builder,
-<code>buildRevLexNeighborsModel</code> and <code>buildLexNeighborsModel</code>.</p>
+<h2 id="adj-ex">7. Example: \(\mathit{deg} = (1,1,2,2,2)\)</h2>
+<p>Seven labelled graphs have this degree sequence; they form two isomorphism classes, the
+path \(P_5\) (6 labellings) and an edge plus a triangle (1 labelling). The table shows which
+labelling each order keeps, and for the others the equal-degree pair whose reduced rows violate
+the order.</p>
+<div class="tw"><table>
+<thead><tr><th>Graph</th><th>Edges</th><th>OptLex</th><th>OptRevLex</th></tr></thead>
+<tbody>
+<tr><td>\(P_5\) 1–5–3–4–2</td><td><code>15 24 34 35</code></td><td class="kept">kept</td><td class="pruned">pair (1,2): 100 &gt; 010</td></tr>
+<tr><td>\(P_5\) 1–4–3–5–2</td><td><code>14 25 34 35</code></td><td class="pruned">pair (1,2): 010 &gt; 001</td><td class="pruned">pair (3,4): 100 &gt; 001</td></tr>
+<tr><td>\(P_5\) 1–5–4–3–2</td><td><code>15 23 34 45</code></td><td class="pruned">pair (3,4): 010 &gt; 001</td><td class="pruned">pair (1,2): 100 &gt; 001</td></tr>
+<tr><td>\(P_5\) 1–3–4–5–2</td><td><code>13 25 34 45</code></td><td class="pruned">pair (1,2): 100 &gt; 001</td><td class="pruned">pair (4,5): 100 &gt; 010</td></tr>
+<tr><td>\(P_5\) 1–4–5–3–2</td><td><code>14 23 35 45</code></td><td class="pruned">pair (3,5): 010 &gt; 001</td><td class="pruned">pair (1,2): 010 &gt; 001</td></tr>
+<tr><td>\(P_5\) 1–3–5–4–2</td><td><code>13 24 35 45</code></td><td class="pruned">pair (1,2): 100 &gt; 010</td><td class="kept">kept</td></tr>
+<tr><td>\(K_2 + C_3\)</td><td><code>12 34 35 45</code></td><td class="kept">kept</td><td class="kept">kept</td></tr>
+</tbody></table></div>
+<p class="legend">The vectors are the two reduced rows as compared (for OptRevLex, already
+reversed). Example, OptLex on pair (1,2) of 1–4–3–5–2: row 1 = 0 0 0 1 0, row 2 = 0 0 0 0 1;
+without columns 1 and 2: 010 vs 001, and 010 &gt; 001, so the labelling is pruned.</p>
+<div class="grid2">
+  <div class="card"><h4>optLexAdj output</h4>
+<div class="mat">Solution 1      Solution 2
+0 0 0 0 1       0 1 0 0 0
+0 0 0 1 0       1 0 0 0 0
+0 0 0 1 1       0 0 0 1 1
+0 1 1 0 0       0 0 1 0 1
+1 0 1 0 0       0 0 1 1 0</div></div>
+  <div class="card"><h4>optRevLexAdj output</h4>
+<div class="mat">Solution 1      Solution 2
+0 0 1 0 0       0 1 0 0 0
+0 0 0 1 0       1 0 0 0 0
+1 0 0 0 1       0 0 0 1 1
+0 1 0 0 1       0 0 1 0 1
+0 0 1 1 0       0 0 1 1 0</div>
+<p class="note">With connectivity on, only Solution 1 (the path) remains.</p></div>
+</div>
+
+<h2 id="adj-res">8. Results</h2>
+<p>All solutions enumerated, one run per cell; time is the wall-clock search time, memory the
+solver's peak memory. "Solutions" are the labelled graphs kept by the symmetry breaking (see the
+callout in section 4), not the number of distinct graphs.</p>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th colspan='3'>OptLexAdj</th><th colspan='3'>OptRevLexAdj</th></tr><tr><th>solutions</th><th>time (s)</th><th>memory (MB)</th><th>solutions</th><th>time (s)</th><th>memory (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>13</td><td class='num'>0.01</td><td class='num'>2.1</td><td class='num'>15</td><td class='num'>0.01</td><td class='num'>2.1</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>15</td><td class='num'>0.01</td><td class='num'>2.1</td><td class='num'>13</td><td class='num'>0.02</td><td class='num'>2.1</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.02</td><td class='num'>2.9</td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>2.8</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>192</td><td class='num'>0.07</td><td class='num'>3.3</td><td class='num'>133</td><td class='num'>0.04</td><td class='num'>3.3</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>750</td><td class='num'>0.15</td><td class='num'>3.8</td><td class='num'>614</td><td class='num'>0.17</td><td class='num'>3.8</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>7,982</td><td class='num'>2.93</td><td class='num'>4.7</td><td class='num'>5,111</td><td class='num'>1.81</td><td class='num'>4.4</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>4,984</td><td class='num'>1.27</td><td class='num'>4.8</td><td class='num'>1,462</td><td class='num'>1.30</td><td class='num'>3.6</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>98,223</td><td class='num'>27.51</td><td class='num'>9.4</td><td class='num'>45,729</td><td class='num'>17.96</td><td class='num'>7.1</td></tr>
+<tr><td><code>N6_222334</code> <span class='tag'>non-regular</span></td><td class='num'>5</td><td class='num'>0.00</td><td class='num'>1.8</td><td class='num'>4</td><td class='num'>0.00</td><td class='num'>1.8</td></tr>
+<tr><td><code>N8_22223333</code> <span class='tag'>non-regular</span></td><td class='num'>45</td><td class='num'>0.01</td><td class='num'>2.0</td><td class='num'>41</td><td class='num'>0.01</td><td class='num'>2.0</td></tr>
+<tr><td><code>N8_22333445</code> <span class='tag'>non-regular</span></td><td class='num'>218</td><td class='num'>0.03</td><td class='num'>2.7</td><td class='num'>209</td><td class='num'>0.02</td><td class='num'>3.0</td></tr>
+<tr><td><code>N11_11222333445</code> <span class='tag'>non-regular</span></td><td class='num'>38,210</td><td class='num'>5.55</td><td class='num'>7.0</td><td class='num'>28,668</td><td class='num'>4.12</td><td class='num'>6.9</td></tr>
+<tr><td><code>N13_1111222233336</code> <span class='tag'>non-regular</span></td><td class='num'>17,259</td><td class='num'>3.74</td><td class='num'>6.2</td><td class='num'>8,530</td><td class='num'>1.75</td><td class='num'>5.5</td></tr>
+<tr><td><code>N12_222222333366</code> <span class='tag'>non-regular</span></td><td class='num'>27,609</td><td class='num'>6.54</td><td class='num'>6.1</td><td class='num'>10,810</td><td class='num'>1.76</td><td class='num'>5.8</td></tr>
+</tbody></table></div>
+<h4>OptRevLex + connectivity (regular sequences)</h4>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>connected graphs</th><th>time (s)</th><th>memory (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>14</td><td class='num'>0.01</td><td class='num'>2.1</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>13</td><td class='num'>0.01</td><td class='num'>2.1</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>2.9</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>129</td><td class='num'>0.04</td><td class='num'>3.3</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>613</td><td class='num'>0.10</td><td class='num'>3.6</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,109</td><td class='num'>1.26</td><td class='num'>5.4</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,429</td><td class='num'>0.74</td><td class='num'>4.1</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,722</td><td class='num'>17.26</td><td class='num'>7.5</td></tr>
+</tbody></table></div>
+</section>
+
+<!-- ===================================================================== NEI -->
+<section role="tabpanel" id="nei" aria-labelledby="tab-nei" hidden>
+
+<ul class="toc">
+  <li><a href="#nei-enc">1. Encoding</a></li>
+  <li><a href="#nei-xd">2. Variables and domains</a></li>
+  <li><a href="#nei-base">3. Base constraints</a></li>
+  <li><a href="#nei-sb">4. Symmetry breaking</a></li>
+  <li><a href="#nei-con">5. Connectivity</a></li>
+  <li><a href="#nei-full">6. Complete models</a></li>
+  <li><a href="#nei-ex">7. Example</a></li>
+  <li><a href="#nei-res">8. Results</a></li>
+</ul>
+
+<h2 id="nei-enc">1. Encoding</h2>
+<p>Row \(i\) lists the neighbors of vertex \(i\) as labels \(1..n\) (vertex \(v\) is written
+\(v+1\) in the code, so that 0 can mean "empty slot"). Every row has \(D = \max_i \mathit{deg}_i\)
+slots; the \(D - \mathit{deg}_i\) unused slots hold 0. Where the zeros sit depends on the
+symmetry breaking, and the neighbors are always strictly ordered:</p>
+<div class="tw"><table>
+<thead><tr><th>Order</th><th>Row layout</th><th>Neighbors \(\{2,5\}\), \(D = 4\)</th></tr></thead>
+<tbody>
+<tr><td>OptRevLex</td><td>neighbors strictly increasing, then the zeros</td><td><code>2 5 0 0</code></td></tr>
+<tr><td>OptLex</td><td>the mirror image: zeros, then neighbors strictly decreasing</td><td><code>0 0 5 2</code></td></tr>
+</tbody></table></div>
+<div class="grid2">
+  <div class="card"><h4>Path 1–5–3–4–2, OptLex layout</h4>
+<div class="mat">1 │ 0 5
+2 │ 0 4
+3 │ 5 4
+4 │ 3 2
+5 │ 3 1</div></div>
+  <div class="card"><h4>Path 1–3–5–4–2, OptRevLex layout</h4>
+<div class="mat">1 │ 3 0
+2 │ 4 0
+3 │ 1 5
+4 │ 2 5
+5 │ 3 4</div></div>
+</div>
+
+<h2 id="nei-xd">2. Variables and domains</h2>
+<p>The zeros and the neighbor labels are fixed in the domains when the variables are created:
+a zero slot can only be 0, and a neighbor slot can be any label except the vertex's own.</p>
 <div class="c">
-<div class="m">$$X = \{\, M_{ik} \;:\; 0 \le i < n,\; 0 \le k < D \,\}, \qquad
-\{v+1 : \{i,v\} \in E\} = \{M_{ik} : M_{ik} \neq 0\}$$</div>
-<div class="sz"><span><b>|X|</b> = \(nD\) variables, of which \(\sum_i (D - \mathit{deg}_i)\) are created fixed to 0</span></div>
+<div class="m">$$X = \{\, M_{ik} : 0 \le i < n,\ 0 \le k < D \,\}, \qquad \{v+1 : \{i,v\} \in E\} = \{M_{ik} : M_{ik} \neq 0\}$$
+$$D(M_{ik}) = \{0\}\ \text{(zero slot)}, \qquad D(M_{ik}) = \{1,\dots,n\} \setminus \{i+1\}\ \text{(neighbor slot: no self-loop)}$$</div>
+<div class="sz"><span><b>|X|</b> = \(nD\) variables, of which \(\sum_i (D - \mathit{deg}_i)\) are fixed to 0</span><span><b>|D|</b> = 1 (zero slot) or \(n-1\) (neighbor slot)</span></div>
 <pre><code>// buildRevLexNeighborsModel: neighbors in slots 0..deg[i]-1, then zeros (2 5 0 0)
 for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; deg[i]) ? neighborVar(cp, n, i) : cp.intVar(0, 0);
 
 // buildLexNeighborsModel: zeros in slots 0..D-deg[i]-1, then neighbors (0 0 5 2)
 int first = D - deg[i];
-for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; first) ? cp.intVar(0, 0) : neighborVar(cp, n, i);</code></pre>
-</div>
+for (int k = 0; k &lt; D; k++) M[i][k] = (k &lt; first) ? cp.intVar(0, 0) : neighborVar(cp, n, i);
 
-<h3>2.2 Domains D</h3>
-<p>The zeros and the neighbor labels are set in the domains when the variables are created, so
-no constraint is needed to place the zeros, to keep a neighbor slot non-zero, or to forbid a
-self-loop.</p>
-<div class="c">
-<div class="m">$$D(M_{ik}) = \{0\} \ \text{(zero slot)}, \qquad
-D(M_{ik}) = \{1, \dots, n\} \setminus \{i+1\} \ \text{(neighbor slot: no self-loop)}$$</div>
-<div class="sz"><span><b>|D|</b> = 1 value (zero slot) or \(n-1\) values (neighbor slot)</span></div>
-<pre><code>private static IloIntVar neighborVar(IloCP cp, int n, int i) throws IloException {
+private static IloIntVar neighborVar(IloCP cp, int n, int i) throws IloException {
     int[] labels = new int[n - 1];
     for (int v = 1, k = 0; v &lt;= n; v++) if (v != i + 1) labels[k++] = v;
     return cp.intVar(labels);
 }</code></pre>
 </div>
 
-<h3>2.3 Constraints C (base model)</h3>
-<p>Notation: \(\#_a(M_i) = |\{k : M_{ik} = a\}|\) is the number of occurrences of \(a\) in row
+<h2 id="nei-base">3. Base constraints</h2>
+<p>Notation: \(\#_a(M_i) = |\{k : M_{ik} = a\}|\), the number of occurrences of \(a\) in row
 \(i\) (<code>cp.count(M[i], a)</code>).</p>
+<div class="tw"><table>
+<thead><tr><th>#</th><th>Constraint</th><th>Formula</th><th class="num">Size</th><th class="num">Arity</th></tr></thead>
+<tbody>
+<tr><td>N1</td><td>Strictly ordered neighbors</td><td>\(M_{ik} &lt; M_{i,k+1}\) (RevLex) or \(&gt;\) (Lex)</td><td class="num">\(\sum_i \max(\mathit{deg}_i - 1, 0)\)</td><td class="num">2</td></tr>
+<tr><td>N2</td><td>Undirected</td><td>\(\#_{v+1}(M_u) = \#_{u+1}(M_v),\ u &lt; v\)</td><td class="num">\(n(n-1)/2\)</td><td class="num">\(2D\)</td></tr>
+</tbody></table></div>
+<p>The other properties of a simple graph come from the domains: the zero slots fix the degree
+(row \(i\) has exactly \(\mathit{deg}_i\) neighbor slots, all \(\ge 1\)), and the missing label
+\(i+1\) forbids self-loops. N1 then forbids a repeated neighbor and leaves a single row per
+neighbor set, so no degree count and no all-different constraint are needed.</p>
 
-<h4>C1 — Strictly ordered neighbors (no repeated neighbor, one row per set)</h4>
-<p>With the zero slots fixed and every neighbor slot \(\ge 1\), the strict order gives exactly
-\(\mathit{deg}_i\) distinct neighbors per row: no degree count and no all-different are needed,
-and each neighbor set has a single row.</p>
+<h4>N1 — Strictly ordered neighbors (in the builders)</h4>
 <div class="c">
 <div class="m">$$\text{RevLex (2 5 0 0):}\quad M_{ik} < M_{i,k+1} \quad (0 \le k < \mathit{deg}_i - 1)$$
 $$\text{Lex (0 0 5 2):}\quad M_{ik} > M_{i,k+1} \quad (D-\mathit{deg}_i \le k < D-1)$$</div>
 <div class="sz"><span><b>Size:</b> \(\max(\mathit{deg}_i - 1, 0)\) per row</span><span><b>Arity:</b> 2</span></div>
 <pre><code>// buildRevLexNeighborsModel
 for (int k = 0; k + 1 &lt; deg[i]; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));
-
 // buildLexNeighborsModel
 for (int k = first; k + 1 &lt; D; k++) cp.add(cp.gt(M[i][k], M[i][k + 1]));</code></pre>
 </div>
 
-<h4>C2 — Symmetry (undirected graph) — <code>addUndirected</code></h4>
+<h4>N2 — Undirected graph — <code>addUndirected</code></h4>
 <div class="c">
 <div class="m">$$\forall\, 0 \le u < v < n: \quad \#_{v+1}(M_u) = \#_{u+1}(M_v)$$</div>
-<div class="sz"><span><b>Size:</b> \(n(n-1)/2\) constraints</span><span><b>Arity:</b> \(2D\) (rows \(u\) and \(v\))</span></div>
-<pre><code>for (int u = 0; u &lt; n; u++) {
-    for (int v = u + 1; v &lt; n; v++) {
-        cp.add(cp.eq(cp.count(M[u], v + 1), cp.count(M[v], u + 1)));
-    }
-}</code></pre>
-<p class="note" style="padding:0 16px 10px">Each count is 0 or 1 because the neighbors are
+<div class="sz"><span><b>Size:</b> \(n(n-1)/2\)</span><span><b>Arity:</b> \(2D\) (rows \(u\) and \(v\))</span></div>
+<pre><code>for (int u = 0; u &lt; n; u++)
+    for (int v = u + 1; v &lt; n; v++)
+        cp.add(cp.eq(cp.count(M[u], v + 1), cp.count(M[v], u + 1)));</code></pre>
+<p class="note" style="padding:0 16px 10px;margin:0">Each count is 0 or 1 because the neighbors are
 strictly ordered; zero slots never match since labels are \(\ge 1\).</p>
 </div>
 
-<h3 id="nei-sb">2.4 Symmetry breaking (only pairs of equal degree)</h3>
+<h2 id="nei-sb">4. Symmetry breaking (on the rows, without 0/1 rows)</h2>
+<p>The same orders as in Adj, posted directly on the neighbor rows and, as in Adj, only for pairs
+of equal degree. For a pair \((i,j)\): <b>drop label \(j+1\) from row \(i\) and label \(i+1\) from
+row \(j\)</b> (if found), then compare the two rows <b>from the last slot</b>.</p>
+<ul>
+  <li><b>Why it matches Adj.</b> Removing columns \(i, j\) from the 0/1 rows leaves the sets
+  \(S_i = N(i)\setminus\{j\}\) and \(S_j = N(j)\setminus\{i\}\). OptRevLex on the 0/1 rows is
+  decided by the <i>largest</i> vertex \(w\) of \(S_i \,\triangle\, S_j\) (row \(i \le\) row \(j\)
+  iff \(w \in S_j\)); the RevLex rows read from the last slot give the largest neighbor first, so
+  they are decided by \(w\) too. OptLex is decided by the <i>smallest</i> \(w\); the Lex rows read
+  from the last slot give the smallest neighbor first, and the row holding \(w\) is the smaller
+  one, hence the swapped arguments.</li>
+  <li><b>The zeros never decide.</b> Equal degrees mean the zero slots are in the same places in
+  both rows.</li>
+</ul>
 
-<h4>SB-Dir-RevLex — drop, then RevLex on the rows (<code>addOptRevLexNeiDir</code>)</h4>
-<p>The same order as SB-RevLex on the adjacency rows (1.4), without building 0/1 rows. For the pair
-\((i,j)\): drop label \(j+1\) from row \(i\) and label \(i+1\) from row \(j\) (if found), then
-compare the two rows from the last slot. Read right to left, the 0/1 rows first differ at the
-largest vertex \(w\) of \((N(i)\setminus\{j\}) \,\triangle\, (N(j)\setminus\{i\})\), and
-row \(i \le\) row \(j\) iff \(w \in N(j)\); the rows list the neighbors increasing, so read from
-the last slot they also first differ at \(w\). The fixed zeros are in the same slots of both rows
-(equal degrees) and never decide.</p>
+<h4><code>dropLabel</code> — remove a label from a row</h4>
 <div class="c">
-<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_i^{-(j+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_j^{-(i+1)}\big)$$
-$$M_i^{-a}[k] = M_{i,k} + t_k\,(M_{i,k-1} - M_{ik}), \qquad t_k = \sum_{m=k}^{D-1} [M_{im} = a] = [k \le p], \qquad M_{i,-1} = 0$$</div>
-<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2D\) variables (rows \(i\) and \(j\)), through two vectors of \(D\) expressions</span></div>
-<pre><code>if (deg[i] != deg[j]) continue;
-IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
-IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
-cp.add(cp.lexicographic(reverse(ri), reverse(rj)));
-
-// dropLabel(cp, row, label): slots before the label move right, 0 enters slot 0
-IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
+<div class="m">$$M_i^{-a}[k] = M_{ik} + t_k\,(M_{i,k-1} - M_{ik}), \qquad t_k = \sum_{m=k}^{D-1} [M_{im} = a] = [k \le p], \qquad M_{i,-1} = 0$$</div>
+<div class="sz"><span><b>Size:</b> no constraint; \(D\) expressions per row</span><span><b>Each expression reads:</b> row \(i\)</span></div>
+<pre><code>IloIntExpr atOrBefore = cp.constant(0);   // [k ≤ p]
 for (int k = D - 1; k &gt;= 0; k--) {
     atOrBefore = cp.sum(atOrBefore, cp.eq(row[k], label));
     IloIntExpr prev = (k &gt; 0) ? row[k - 1] : cp.constant(0);
     out[k] = cp.sum(row[k], cp.prod(atOrBefore, cp.diff(prev, row[k])));
 }</code></pre>
 </div>
-<p class="note">\(p\) is the slot holding the label. If it is not found, every \(t_k\) is 0 and
-the row is unchanged: no adjacency indicator is needed. The 0 enters at the front so that the
-freed slot is the last one compared (both Lex and RevLex compare from the last slot). Example: <code>2 5 0 0</code> without 5 →
-<code>0 2 0 0</code>. Finds the same solutions as <code>optRevLexAdj</code>.</p>
+<p>\(p\) is the slot holding the label: the slots before it move one step right and a 0 enters
+slot 0, the last slot compared. If the label is absent, every \(t_k\) is 0 and the row is
+unchanged, so no adjacency indicator is needed. Examples: <code>2 5 0 0</code> without 5 →
+<code>0 2 0 0</code>; <code>0 0 5 2</code> without 5 → <code>0 0 0 2</code>.</p>
 
-<h4>SB-Dir-Lex — drop, then Lex on the rows (<code>addOptLexNeiDir</code>)</h4>
-<p>The mirror image for OptLex. Read left to right, the 0/1 rows first differ at the
-<i>smallest</i> vertex \(w\) of the symmetric difference. The Lex rows list the neighbors
-decreasing (<code>0 0 5 2</code>), so read from the last slot they give the smallest neighbor
-first and also first differ at \(w\); the row holding \(w\) is the smaller one, hence the
-swapped arguments. The same <code>dropLabel</code> is used: the freed slot is slot 0, the last
-one compared. Example: <code>0 0 5 2</code> without 5 → <code>0 0 0 2</code>.</p>
+<h4>OptLex — <code>addOptLexNeiDir</code></h4>
 <div class="c">
-<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_j^{-(i+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_i^{-(j+1)}\big)$$
-$$M_i^{-a} \text{ as in SB-Dir-RevLex (same } \texttt{dropLabel}\text{)}$$</div>
-<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints (\(n\ge 3\))</span><span><b>Arity:</b> \(2D\) variables, through two vectors of \(D\) expressions</span></div>
+<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_j^{-(i+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_i^{-(j+1)}\big)$$</div>
+<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints</span><span><b>Arity:</b> \(2D\) (rows \(i\) and \(j\)), through two vectors of \(D\) expressions</span></div>
 <pre><code>if (deg[i] != deg[j]) continue;
 IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
 IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
 cp.add(cp.lexicographic(reverse(rj), reverse(ri)));</code></pre>
 </div>
 
-<h3 id="nei-conn">2.5 Connectivity — <code>addLargestNeighborAbove</code></h3>
-<p class="warn"><strong>RevLex only, exact for regular sequences only</strong>, like the Adj
-version (1.5).</p>
-<p>"A neighbor with a larger index" is "the largest neighbor is above \(i+1\)". In the RevLex
-layout (<code>2 5 0 0</code>) the largest neighbor is the last neighbor slot
-\(\mathit{deg}_i - 1\). A vertex of degree 0 uses slot 0, which holds 0, so the constraint fails
-as it should. Used by <code>optRevLexNeiDir</code>.</p>
+<h4>OptRevLex — <code>addOptRevLexNeiDir</code></h4>
+<div class="c">
+<div class="m">$$\forall\, i < j,\ \mathit{deg}_i = \mathit{deg}_j: \quad \operatorname{rev}\!\big(M_i^{-(j+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_j^{-(i+1)}\big)$$</div>
+<div class="sz"><span><b>Size:</b> \(P\) lexicographic constraints</span><span><b>Arity:</b> \(2D\), through two vectors of \(D\) expressions</span></div>
+<pre><code>if (deg[i] != deg[j]) continue;
+IloIntExpr[] ri = dropLabel(cp, M[i], j + 1);   // row i without j+1
+IloIntExpr[] rj = dropLabel(cp, M[j], i + 1);   // row j without i+1
+cp.add(cp.lexicographic(reverse(ri), reverse(rj)));</code></pre>
+</div>
+
+<h2 id="nei-con">5. Connectivity — <code>addLargestNeighborAbove</code> (OptRevLex only)</h2>
+<p>The same condition as in Adj: every vertex except the last has a neighbor with a larger label,
+i.e. its <i>largest</i> neighbor is above it. In the RevLex layout the largest neighbor is the last
+neighbor slot, so one unary constraint per vertex is enough.</p>
 <div class="c">
 <div class="m">$$\forall i \in [0,n-1): \quad M_{i,\ \max(\mathit{deg}_i - 1,\,0)} > i+1$$</div>
-<div class="sz"><span><b>Size:</b> \(n-1\) constraints</span><span><b>Arity:</b> 1</span></div>
+<div class="sz"><span><b>Size:</b> \(n-1\)</span><span><b>Arity:</b> 1</span></div>
 <pre><code>for (int i = 0; i &lt; M.length - 1; i++) {
     int last = Math.max(deg[i] - 1, 0);   // deg 0: slot 0 holds 0, so the constraint fails
     cp.add(cp.gt(M[i][last], i + 1));
 }</code></pre>
 </div>
+<div class="callout warn"><b>Safe for regular sequences only</b>, for the same reason as in Adj
+(section 5 of the Adj tab).</div>
 
-<!-- ===================================================================== -->
-<h2 id="sizes">3. Size summary</h2>
-<p>Posted constraints per part; the example columns are the 4-regular sequence with \(n = 7\)
-(\(D = 4\), \(P = 21\)).</p>
-<div class="tw">
-<table>
-<tr><th>Part</th><th>Adj</th><th>n = 7, d = 4</th><th>Nei</th><th>n = 7, d = 4</th></tr>
-<tr><td>Variables |X|</td><td>\(n^2\)</td><td>49</td><td>\(nD\) (incl. \(\sum_i (D-\mathit{deg}_i)\) fixed zeros)</td><td>28</td></tr>
-<tr><td>Domain size |D|</td><td>2</td><td>2</td><td>1 (zero slot) or \(n-1\) (neighbor slot)</td><td>6</td></tr>
-<tr><td>Base</td><td>\(2n + n(n-1)/2\) (incl. degree)</td><td>35</td><td>\(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2\)</td><td>42</td></tr>
-<tr><td>Lex / RevLex</td><td>\(P\), arity \(2(n-2)\)</td><td>21</td><td>\(P\), arity \(2D\)</td><td>21</td></tr>
-<tr><td>Connectivity (RevLex)</td><td>\(n-1\), arity \(n-1-i\)</td><td>6</td><td>\(n-1\), arity 1</td><td>6</td></tr>
-<tr><td><b>Total</b> (RevLex + connectivity)</td><td>\(2n + n(n-1)/2 + P + n - 1\)</td><td>62</td><td>\(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + P + n - 1\)</td><td>69</td></tr>
-</table>
+<h2 id="nei-full">6. Complete models</h2>
+<div class="grid2">
+<dl class="csp">
+  <dt><code>optLexNeiDir(deg)</code></dt>
+  <dd>\(X\): \(M_{ik}\), \(nD\) variables (layout <code>0 0 5 2</code>)</dd>
+  <dd>\(C\): N1 (\(&gt;\)) + N2 + OptLex on the rows</dd>
+  <dd>Size: \(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + P\)</dd>
+</dl>
+<dl class="csp">
+  <dt><code>optRevLexNeiDir(deg, connectivity)</code></dt>
+  <dd>\(X\): \(M_{ik}\), \(nD\) variables (layout <code>2 5 0 0</code>)</dd>
+  <dd>\(C\): N1 (\(&lt;\)) + N2 + OptRevLex on the rows (+ connectivity)</dd>
+  <dd>Size: \(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + P\) (+ \(n-1\))</dd>
+</dl>
 </div>
-<p class="note">These are the constraints posted in Java; the number reported by CP Optimizer
-(<code>NumberOfConstraints</code>) is counted after extraction and can differ.</p>
+<pre style="border-radius:8px"><code>public static Result optRevLexNeiDir(int[] deg, boolean connectivity, String title) throws IloException {
+    IloCP cp = new IloCP();
+    IloIntVar[][] M = buildRevLexNeighborsModel(cp, deg);   // domains + N1 + N2
+    addOptRevLexNeiDir(cp, M, deg);
+    if (connectivity) addLargestNeighborAbove(cp, M, deg);
+    return solve(cp, M, true, title);
+}</code></pre>
 
-<!-- ===================================================================== -->
-<h2 id="configs">4. Models</h2>
-<p>Each public model method of <code>CpModels</code> builds a base model (variables with their
-domains, then the base constraints), posts its symmetry breaking and, for OptRevLex when
-<code>connectivity</code> is true, a connectivity constraint; then it enumerates all solutions.</p>
-<div class="tw">
-<table>
-<tr><th>Method</th><th>Main column</th><th>Base</th><th>Symmetry breaking</th><th>Connectivity</th></tr>
-<tr><td><code>optLexAdj</code></td><td>OptLexAdj</td><td>Adj C1–C3</td><td>SB-Lex</td><td>—</td></tr>
-<tr><td><code>optLexNeiDir</code></td><td>OptLexNeiDir</td><td><code>buildLexNeighborsModel</code> (0 0 5 2)</td><td>SB-Dir-Lex</td><td>—</td></tr>
-<tr><td><code>optRevLexAdj</code></td><td>OptRevLexAdj(Con)</td><td>Adj C1–C3</td><td>SB-RevLex</td><td>1.5 <code>addUpperOffDiagonal</code></td></tr>
-<tr><td><code>optRevLexNeiDir</code></td><td>OptRevLexNeiDir(Con)</td><td><code>buildRevLexNeighborsModel</code> (2 5 0 0)</td><td>SB-Dir-RevLex</td><td>2.5 <code>addLargestNeighborAbove</code></td></tr>
-</table>
+<h2 id="nei-ex">7. Example: \(\mathit{deg} = (1,1,2,2,2)\)</h2>
+<p>Here \(D = 2\): vertices 1 and 2 have one zero slot, vertices 3–5 none. Nei keeps exactly the
+labellings Adj keeps (Adj tab, section 7). Two pairs of OptRevLex, worked on the rows:</p>
+<div class="grid2">
+  <div class="card"><h4>Kept: pair (4,5) of 1–3–5–4–2</h4>
+  <p>Rows: 4 = <code>2 5</code>, 5 = <code>3 4</code>; 4 and 5 are adjacent.</p>
+  <p>Row 4 without 5 → <code>0 2</code>; row 5 without 4 → <code>0 3</code>.<br>
+  From the last slot: <code>2 0</code> ≤ <code>3 0</code>: <span class="kept">satisfied</span>.</p></div>
+  <div class="card"><h4>Pruned: pair (1,2) of 1–5–3–4–2</h4>
+  <p>Rows: 1 = <code>5 0</code>, 2 = <code>4 0</code>; 1 and 2 are not adjacent, nothing is dropped.</p>
+  <p>From the last slot: <code>0 5</code> ≤ <code>0 4</code>? 5 &gt; 4: <span class="bad">violated</span>,
+  the same verdict as Adj (100 &gt; 010).</p></div>
 </div>
-<p class="note"><code>Main</code> runs the 4 models when <code>CONNECTIVITY = false</code>, and only
-the 2 OptRevLex ones (columns suffixed <code>Con</code>) when <code>CONNECTIVITY = true</code>.
-Degree sequences come from <code>DEFAULT_SEQUENCES</code> or the command line, and are sorted
-increasing before they are run.</p>
-<p class="note">Checked by brute force on all 144 graphic sequences with \(n \le 6\): Adj and
-Nei give the same counts for each order, with and without connectivity, and never lose a
-graph without connectivity. Restricting the symmetry breaking to equal-degree pairs is sound
-but not complete: for some non-regular sequences a graph is found more than once.</p>
-<p class="note">Solver settings shared by all models (in <code>solve</code>): depth-first
-search, default inference level <code>Low</code>, quiet log.</p>
+<div class="grid2">
+  <div class="card"><h4>optLexNeiDir output</h4>
+<div class="mat">Solution 1   Solution 2
+1: 0 5       1: 0 2
+2: 0 4       2: 0 1
+3: 5 4       3: 5 4
+4: 3 2       4: 5 3
+5: 3 1       5: 4 3</div></div>
+  <div class="card"><h4>optRevLexNeiDir output</h4>
+<div class="mat">Solution 1   Solution 2
+1: 3 0       1: 2 0
+2: 4 0       2: 1 0
+3: 1 5       3: 4 5
+4: 2 5       4: 3 5
+5: 3 4       5: 3 4</div>
+<p class="note">The same graphs as optLexAdj / optRevLexAdj. With connectivity on, only Solution 1 remains.</p></div>
+</div>
 
+<h2 id="nei-res">8. Results</h2>
+<p>Same benchmark and settings as the Adj tab.</p>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th colspan='3'>OptLexNeiDir</th><th colspan='3'>OptRevLexNeiDir</th></tr><tr><th>solutions</th><th>time (s)</th><th>memory (MB)</th><th>solutions</th><th>time (s)</th><th>memory (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>13</td><td class='num'>0.02</td><td class='num'>3.4</td><td class='num'>15</td><td class='num'>0.01</td><td class='num'>3.4</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>15</td><td class='num'>0.02</td><td class='num'>3.9</td><td class='num'>13</td><td class='num'>0.02</td><td class='num'>3.9</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.05</td><td class='num'>4.6</td><td class='num'>81</td><td class='num'>0.05</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>192</td><td class='num'>0.10</td><td class='num'>4.6</td><td class='num'>133</td><td class='num'>0.05</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>750</td><td class='num'>0.30</td><td class='num'>6.2</td><td class='num'>614</td><td class='num'>0.21</td><td class='num'>6.1</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>7,982</td><td class='num'>2.50</td><td class='num'>7.7</td><td class='num'>5,111</td><td class='num'>1.84</td><td class='num'>7.4</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>4,984</td><td class='num'>1.57</td><td class='num'>6.7</td><td class='num'>1,462</td><td class='num'>0.54</td><td class='num'>6.1</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>98,223</td><td class='num'>42.27</td><td class='num'>12.5</td><td class='num'>45,729</td><td class='num'>12.83</td><td class='num'>10.3</td></tr>
+<tr><td><code>N6_222334</code> <span class='tag'>non-regular</span></td><td class='num'>5</td><td class='num'>0.00</td><td class='num'>2.1</td><td class='num'>4</td><td class='num'>0.00</td><td class='num'>2.0</td></tr>
+<tr><td><code>N8_22223333</code> <span class='tag'>non-regular</span></td><td class='num'>45</td><td class='num'>0.01</td><td class='num'>2.5</td><td class='num'>41</td><td class='num'>0.01</td><td class='num'>2.6</td></tr>
+<tr><td><code>N8_22333445</code> <span class='tag'>non-regular</span></td><td class='num'>218</td><td class='num'>0.03</td><td class='num'>3.3</td><td class='num'>209</td><td class='num'>0.02</td><td class='num'>3.5</td></tr>
+<tr><td><code>N11_11222333445</code> <span class='tag'>non-regular</span></td><td class='num'>38,210</td><td class='num'>5.64</td><td class='num'>5.8</td><td class='num'>28,668</td><td class='num'>2.81</td><td class='num'>5.8</td></tr>
+<tr><td><code>N13_1111222233336</code> <span class='tag'>non-regular</span></td><td class='num'>17,259</td><td class='num'>3.95</td><td class='num'>6.6</td><td class='num'>8,530</td><td class='num'>1.46</td><td class='num'>6.2</td></tr>
+<tr><td><code>N12_222222333366</code> <span class='tag'>non-regular</span></td><td class='num'>27,609</td><td class='num'>10.99</td><td class='num'>6.1</td><td class='num'>10,810</td><td class='num'>1.35</td><td class='num'>7.0</td></tr>
+</tbody></table></div>
+<h4>OptRevLex + connectivity (regular sequences)</h4>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>connected graphs</th><th>time (s)</th><th>memory (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>14</td><td class='num'>0.01</td><td class='num'>3.2</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>13</td><td class='num'>0.01</td><td class='num'>3.8</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.04</td><td class='num'>4.4</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>129</td><td class='num'>0.04</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>613</td><td class='num'>0.22</td><td class='num'>6.5</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,109</td><td class='num'>1.39</td><td class='num'>7.3</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,429</td><td class='num'>0.32</td><td class='num'>6.6</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,722</td><td class='num'>10.30</td><td class='num'>10.2</td></tr>
+</tbody></table></div>
+</section>
+
+<!-- ===================================================================== COMPARISON -->
+<section role="tabpanel" id="cmp" aria-labelledby="tab-cmp" hidden>
+
+<ul class="toc">
+  <li><a href="#cmp-model">1. Models side by side</a></li>
+  <li><a href="#cmp-size">2. Size on examples</a></li>
+  <li><a href="#cmp-ok">3. Correctness</a></li>
+  <li><a href="#cmp-res">4. Results</a></li>
+  <li><a href="#cmp-concl">5. Conclusions</a></li>
+</ul>
+
+<h2 id="cmp-model">1. Models side by side</h2>
+<div class="tw"><table>
+<thead><tr><th>Part</th><th>Adj</th><th>Nei</th></tr></thead>
+<tbody>
+<tr><td>Variables</td><td>\(n^2\)</td><td>\(nD\), of which \(\sum_i(D-\mathit{deg}_i)\) fixed to 0</td></tr>
+<tr><td>Domain</td><td>\(\{0,1\}\)</td><td>\(\{0\}\) or \(\{1..n\}\setminus\{i+1\}\)</td></tr>
+<tr><td>No self-loop</td><td>\(n\) constraints, arity 1</td><td>in the domains</td></tr>
+<tr><td>Degree</td><td>\(n\) constraints, arity \(n\)</td><td>in the domains (zero slots)</td></tr>
+<tr><td>No repeated neighbor</td><td>implied by 0/1</td><td>\(\sum_i \max(\mathit{deg}_i-1,0)\) strict orders, arity 2</td></tr>
+<tr><td>Undirected</td><td>\(n(n-1)/2\), arity 2</td><td>\(n(n-1)/2\), arity \(2D\) (<code>count</code>)</td></tr>
+<tr><td>OptLex / OptRevLex</td><td>\(P\), arity \(2(n-2)\)</td><td>\(P\), arity \(2D\) (<code>dropLabel</code>)</td></tr>
+<tr><td>Connectivity (RevLex)</td><td>\(n-1\), arity \(n-1-i\)</td><td>\(n-1\), arity 1</td></tr>
+</tbody></table></div>
+<p>Adj has \(n^2\) small Boolean variables and simple constraints. Nei has fewer variables
+(\(nD \le n(n-1)\)) with larger domains, moves self-loops and degrees into the domains, but needs
+<code>count</code> expressions for the undirected constraint and <code>dropLabel</code>
+expressions for the symmetry breaking.</p>
+
+<h2 id="cmp-size">2. Size on examples</h2>
+<p>Constraints posted by the code, without connectivity (in brackets: the connectivity
+constraints added by OptRevLex).</p>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th colspan='3'>Adj</th><th colspan='3'>Nei</th></tr><tr><th>variables</th><th>values / var</th><th>constraints</th><th>variables (fixed 0)</th><th>values / var</th><th>constraints</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>64</td><td class='num'>2</td><td class='num'>72 <span class='muted'>(+7)</span></td><td class='num'>24 (0)</td><td class='num'>7 <span class='muted'>(1 if fixed)</span></td><td class='num'>72 <span class='muted'>(+7)</span></td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>144</td><td class='num'>2</td><td class='num'>156 <span class='muted'>(+11)</span></td><td class='num'>48 (0)</td><td class='num'>11 <span class='muted'>(1 if fixed)</span></td><td class='num'>168 <span class='muted'>(+11)</span></td></tr>
+<tr><td><code>N12_222222333366</code></td><td class='num'>144</td><td class='num'>2</td><td class='num'>112 <span class='muted'>(+11)</span></td><td class='num'>72 (36)</td><td class='num'>11 <span class='muted'>(1 if fixed)</span></td><td class='num'>112 <span class='muted'>(+11)</span></td></tr>
+</tbody></table></div>
+
+<h2 id="cmp-ok">3. Correctness</h2>
+<ul>
+  <li><b>Same solutions.</b> For each order, Adj and Nei keep exactly the same labelled graphs
+  (example in section 7 of both tabs). Same solution counts in this benchmark:
+  yes, on every sequence of the benchmark.</li>
+  <li><b>Checked by brute force</b> on all 144 graphic sequences with \(n \le 6\), against the
+  isomorphism classes: no model loses a graph without connectivity; with connectivity no
+  connected graph is lost for regular sequences, and 7 non-regular sequences lose connected
+  graphs, in both encodings alike.</li>
+  <li><b>Partial symmetry breaking.</b> OptLex and OptRevLex are sound but not complete: a graph
+  can be found more than once (rarely for \(n \le 6\), often for larger \(n\)). This affects
+  both encodings identically, since they post the same order.</li>
+</ul>
+
+<h2 id="cmp-res">4. Results</h2>
+<p>Time ratio = Adj time / Nei time: above 1, Nei is faster
+(<span style="color:var(--win);font-weight:600">green</span>, more than 15 % faster); below 1, Adj
+is faster (<span style="color:var(--lose);font-weight:600">red</span>); within 15 %, a tie.
+<b>n.s.</b>: both runs take less than 0.2 s, too short to compare. One run per cell, so small
+differences are within run-to-run noise.</p>
+<h3>OptLex: optLexAdj vs optLexNeiDir</h3>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>solutions</th><th>Adj time (s)</th><th>Nei time (s)</th><th>Adj / Nei</th><th>Adj mem (MB)</th><th>Nei mem (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>13</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.4</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>15</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.9</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.02</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num'>2.9</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>192</td><td class='num'>0.07</td><td class='num'>0.10</td><td class='num tie'>n.s.</td><td class='num'>3.3</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>750</td><td class='num'>0.15</td><td class='num'>0.30</td><td class='num lose'>0.49×</td><td class='num'>3.8</td><td class='num'>6.2</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>7,982</td><td class='num'>2.93</td><td class='num'>2.50</td><td class='num win'>1.17×</td><td class='num'>4.7</td><td class='num'>7.7</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>4,984</td><td class='num'>1.27</td><td class='num'>1.57</td><td class='num lose'>0.80×</td><td class='num'>4.8</td><td class='num'>6.7</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>98,223</td><td class='num'>27.51</td><td class='num'>42.27</td><td class='num lose'>0.65×</td><td class='num'>9.4</td><td class='num'>12.5</td></tr>
+<tr><td><code>N6_222334</code> <span class='tag'>non-regular</span></td><td class='num'>5</td><td class='num'>0.00</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1.8</td><td class='num'>2.1</td></tr>
+<tr><td><code>N8_22223333</code> <span class='tag'>non-regular</span></td><td class='num'>45</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.0</td><td class='num'>2.5</td></tr>
+<tr><td><code>N8_22333445</code> <span class='tag'>non-regular</span></td><td class='num'>218</td><td class='num'>0.03</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>2.7</td><td class='num'>3.3</td></tr>
+<tr><td><code>N11_11222333445</code> <span class='tag'>non-regular</span></td><td class='num'>38,210</td><td class='num'>5.55</td><td class='num'>5.64</td><td class='num tie'>0.98×</td><td class='num'>7.0</td><td class='num'>5.8</td></tr>
+<tr><td><code>N13_1111222233336</code> <span class='tag'>non-regular</span></td><td class='num'>17,259</td><td class='num'>3.74</td><td class='num'>3.95</td><td class='num tie'>0.95×</td><td class='num'>6.2</td><td class='num'>6.6</td></tr>
+<tr><td><code>N12_222222333366</code> <span class='tag'>non-regular</span></td><td class='num'>27,609</td><td class='num'>6.54</td><td class='num'>10.99</td><td class='num lose'>0.60×</td><td class='num'>6.1</td><td class='num'>6.1</td></tr>
+</tbody></table></div>
+<h3>OptRevLex: optRevLexAdj vs optRevLexNeiDir</h3>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>solutions</th><th>Adj time (s)</th><th>Nei time (s)</th><th>Adj / Nei</th><th>Adj mem (MB)</th><th>Nei mem (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>15</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.4</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>13</td><td class='num'>0.02</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.9</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num'>2.8</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>133</td><td class='num'>0.04</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num'>3.3</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>614</td><td class='num'>0.17</td><td class='num'>0.21</td><td class='num lose'>0.77×</td><td class='num'>3.8</td><td class='num'>6.1</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,111</td><td class='num'>1.81</td><td class='num'>1.84</td><td class='num tie'>0.98×</td><td class='num'>4.4</td><td class='num'>7.4</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,462</td><td class='num'>1.30</td><td class='num'>0.54</td><td class='num win'>2.41×</td><td class='num'>3.6</td><td class='num'>6.1</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,729</td><td class='num'>17.96</td><td class='num'>12.83</td><td class='num win'>1.40×</td><td class='num'>7.1</td><td class='num'>10.3</td></tr>
+<tr><td><code>N6_222334</code> <span class='tag'>non-regular</span></td><td class='num'>4</td><td class='num'>0.00</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1.8</td><td class='num'>2.0</td></tr>
+<tr><td><code>N8_22223333</code> <span class='tag'>non-regular</span></td><td class='num'>41</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.0</td><td class='num'>2.6</td></tr>
+<tr><td><code>N8_22333445</code> <span class='tag'>non-regular</span></td><td class='num'>209</td><td class='num'>0.02</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>3.0</td><td class='num'>3.5</td></tr>
+<tr><td><code>N11_11222333445</code> <span class='tag'>non-regular</span></td><td class='num'>28,668</td><td class='num'>4.12</td><td class='num'>2.81</td><td class='num win'>1.46×</td><td class='num'>6.9</td><td class='num'>5.8</td></tr>
+<tr><td><code>N13_1111222233336</code> <span class='tag'>non-regular</span></td><td class='num'>8,530</td><td class='num'>1.75</td><td class='num'>1.46</td><td class='num win'>1.19×</td><td class='num'>5.5</td><td class='num'>6.2</td></tr>
+<tr><td><code>N12_222222333366</code> <span class='tag'>non-regular</span></td><td class='num'>10,810</td><td class='num'>1.76</td><td class='num'>1.35</td><td class='num win'>1.31×</td><td class='num'>5.8</td><td class='num'>7.0</td></tr>
+</tbody></table></div>
+<h3>OptRevLex + connectivity (regular sequences)</h3>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>solutions</th><th>Adj time (s)</th><th>Nei time (s)</th><th>Adj / Nei</th><th>Adj mem (MB)</th><th>Nei mem (MB)</th></tr></thead><tbody>
+<tr><td><code>N8_d3</code></td><td class='num'>14</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.2</td></tr>
+<tr><td><code>N8_d4</code></td><td class='num'>13</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>3.8</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>0.04</td><td class='num tie'>n.s.</td><td class='num'>2.9</td><td class='num'>4.4</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>129</td><td class='num'>0.04</td><td class='num'>0.04</td><td class='num tie'>n.s.</td><td class='num'>3.3</td><td class='num'>4.6</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>613</td><td class='num'>0.10</td><td class='num'>0.22</td><td class='num lose'>0.43×</td><td class='num'>3.6</td><td class='num'>6.5</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,109</td><td class='num'>1.26</td><td class='num'>1.39</td><td class='num tie'>0.91×</td><td class='num'>5.4</td><td class='num'>7.3</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,429</td><td class='num'>0.74</td><td class='num'>0.32</td><td class='num win'>2.34×</td><td class='num'>4.1</td><td class='num'>6.6</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,722</td><td class='num'>17.26</td><td class='num'>10.30</td><td class='num win'>1.68×</td><td class='num'>7.5</td><td class='num'>10.2</td></tr>
+</tbody></table></div>
+<h3>Totals</h3>
+<div class="tw"><table><thead><tr><th>Benchmark set (all sequences above)</th><th>Adj total (s)</th><th>Nei total (s)</th><th>Adj / Nei</th></tr></thead><tbody>
+<tr><td>OptLex, regular sequences</td><td class='num'>31.96</td><td class='num'>46.84</td><td class='num lose'>0.68×</td></tr>
+<tr><td>OptLex, non-regular sequences</td><td class='num'>15.87</td><td class='num'>20.62</td><td class='num lose'>0.77×</td></tr>
+<tr><td>OptRevLex, regular sequences</td><td class='num'>21.34</td><td class='num'>15.56</td><td class='num win'>1.37×</td></tr>
+<tr><td>OptRevLex, non-regular sequences</td><td class='num'>7.66</td><td class='num'>5.66</td><td class='num win'>1.35×</td></tr>
+<tr><td>OptRevLex + connectivity (regular)</td><td class='num'>19.44</td><td class='num'>12.33</td><td class='num win'>1.58×</td></tr>
+</tbody></table></div>
+
+<h2 id="cmp-concl">5. Conclusions</h2>
+<ol>
+  <li><b>Same solutions.</b> For each symmetry breaking, Adj and Nei post the same order and keep
+  exactly the same labelled graphs: identical solution counts on all 14 sequences of the benchmark,
+  with and without connectivity, and on the 144 sequences of the brute-force check.</li>
+  <li><b>Smaller model, richer constraints.</b> Nei has far fewer variables (48 instead of 144 for
+  4-regular graphs on 12 vertices; none of them fixed, since a regular sequence has no zero slot)
+  and moves self-loops and degrees into the domains. In exchange its undirected and
+  symmetry-breaking constraints have larger arity and are built from <code>count</code> and
+  <code>dropLabel</code> expressions, so the number of posted constraints is about the same
+  (168 for Nei, 156 for Adj on that example).</li>
+  <li><b>With OptRevLex, Nei is faster.</b> Over the whole benchmark Nei takes 15.6 s instead of
+  21.3 s on the regular sequences (1.37×) and 5.7 s instead of 7.7 s on the non-regular ones
+  (1.35×). The gap grows with the instance: 1.40× on 4-regular graphs with 12 vertices
+  (12.8 s vs 18.0 s) and 2.4× on 3-regular graphs with 12 vertices. On instances solved in a
+  fraction of a second the two are within noise.</li>
+  <li><b>With connectivity, the advantage of Nei is larger.</b> 12.3 s instead of 19.4 s in total
+  (1.58×), 1.68× on 4-regular graphs with 12 vertices: the Nei connectivity constraint is a single
+  bound per vertex (<code>M[i][deg[i]-1] &gt; i+1</code>), the Adj one a sum over a row.</li>
+  <li><b>With OptLex, Adj is faster.</b> 32.0 s for Adj against 46.8 s for Nei on the regular
+  sequences (0.68×) and 15.9 s against 20.6 s on the non-regular ones (0.77×); on 4-regular graphs
+  with 12 vertices, 27.5 s against 42.3 s.</li>
+  <li><b>Memory.</b> Nei uses more solver memory on the larger instances (10.3 MB against 7.1 MB
+  with OptRevLex on 4-regular graphs with 12 vertices), because of its <code>count</code> and
+  <code>dropLabel</code> expressions; all runs stay below 13 MB.</li>
+  <li><b>OptRevLex prunes more than OptLex</b> on regular sequences, in both encodings (e.g.
+  45,729 instead of 98,223 solutions for 4-regular graphs with 12 vertices), and it is the only
+  order compatible with the connectivity constraint.</li>
+</ol>
+<div class="callout"><b>Recommendation.</b> The fastest configuration measured is <b>Nei with
+OptRevLex</b> (<code>optRevLexNeiDir</code>), with or without connectivity. If OptLex is required,
+use the Adj encoding. These timings come from a single run per configuration on one machine; the
+differences of a few percent on small instances are not significant.</div>
+
+</section>
 </main>
+
+<footer>
+Benchmark: all solutions enumerated, one run per configuration, on a 4-core Linux machine with
+IBM CP Optimizer 22.1.1 (depth-first search, inference level Low). Times are wall-clock search
+times; memory is the solver's <code>PeakMemoryUsage</code>.
+</footer>
+
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('[role="tab"]'));
+  var ids = tabs.map(function (t) { return t.getAttribute('aria-controls'); });
+  function show(id, focus) {
+    tabs.forEach(function (t) {
+      var on = t.getAttribute('aria-controls') === id;
+      t.setAttribute('aria-selected', on ? 'true' : 'false');
+      t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      if (on && focus) t.focus();
+    });
+  }
+  function paneOf(hash) {
+    var id = (hash || '').replace('#', '');
+    if (!id) return null;
+    if (ids.indexOf(id) >= 0) return id;
+    var el = document.getElementById(id);
+    var pane = el && el.closest('[role="tabpanel"]');
+    return pane ? pane.id : null;
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () {
+      show(t.getAttribute('aria-controls'));
+      try { history.replaceState(null, '', '#' + t.getAttribute('aria-controls')); } catch (e) {}
+    });
+    t.addEventListener('keydown', function (e) {
+      var k = e.key, j = null;
+      if (k === 'ArrowRight') j = (i + 1) % tabs.length;
+      else if (k === 'ArrowLeft') j = (i - 1 + tabs.length) % tabs.length;
+      else if (k === 'Home') j = 0;
+      else if (k === 'End') j = tabs.length - 1;
+      if (j !== null) { e.preventDefault(); show(ids[j], true); }
+    });
+  });
+  function fromHash() {
+    var id = paneOf(location.hash);
+    if (id) {
+      show(id);
+      var target = document.getElementById(location.hash.slice(1));
+      if (target && ids.indexOf(target.id) < 0) target.scrollIntoView();
+    }
+  }
+  window.addEventListener('hashchange', fromHash);
+  fromHash();
+})();
+</script>
 </body>
 </html>
