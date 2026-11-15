@@ -28,8 +28,10 @@ public class Main {
      * regular families (1-4) give trustworthy counts.
      */
     private static final int[][] DEFAULT_SEQUENCES = {
+            //{2, 2, 3, 3},   // diamond (K4 minus an edge)
+            {1, 2, 2, 3},   // paw (your shared Lex / RevLex sample)
             // 0. warm-up (JIT + CP Optimizer start-up; ignore this row)
-            regular(6, 3),
+              regular(6, 3),
             // 1. cubic graphs
             regular(8, 3), regular(10, 3), regular(12, 3), regular(14, 3),
             // 2. quartic graphs
@@ -56,12 +58,12 @@ public class Main {
             regular(10, 8),
             // optional heavy instances (over 60 s for the four models in calibration):
             // regular(12, 7),                                  // complement of N12_d4
-            // {3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4},            // bi-degree
+            // {3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4},            // bi-degree*/
     };
 
     /**
-     * true = connected graphs only (OptRevLex models only, upper off-diagonal constraint:
-     * correct for regular sequences, may lose graphs for non-regular ones); false = all graphs.
+     * true = connected graphs only: OptRevLexAdj (upper off-diagonal) and OptRevLexNeiDir
+     * (largest neighbor above i); false = all graphs.
      */
     private static final boolean CONNECTIVITY = false;
 
@@ -77,8 +79,8 @@ public class Main {
     private record Column(String name, Model model) {}
 
     /**
-     * The table columns. Connectivity is only valid with OptRevLex, so the OptLex models
-     * are not run when CONNECTIVITY is on.
+     * The table columns. With CONNECTIVITY on, OptLexAdj is not run: the Adj connectivity
+     * constraint is only valid with OptRevLex.
      */
     private static List<Column> columns() {
         if (CONNECTIVITY) {
@@ -88,7 +90,6 @@ public class Main {
         }
         return List.of(
                 new Column("OptLexAdj",       CpModels::optLexAdj),
-                new Column("OptLexNeiDir",    CpModels::optLexNeiDir),
                 new Column("OptRevLexAdj",    (d, t) -> CpModels.optRevLexAdj(d, false, t)),
                 new Column("OptRevLexNeiDir", (d, t) -> CpModels.optRevLexNeiDir(d, false, t)));
     }
