@@ -31,9 +31,9 @@ public class Main {
             //{2, 2, 3, 3},   // diamond (K4 minus an edge)
             {1, 2, 2, 3},   // paw (your shared Lex / RevLex sample)
             // 0. warm-up (JIT + CP Optimizer start-up; ignore this row)
-              regular(6, 3),
+             regular(6, 3),
             // 1. cubic graphs
-            regular(8, 3), regular(10, 3), regular(12, 3), regular(14, 3),
+           /* regular(8, 3), regular(10, 3), regular(12, 3), regular(14, 3),
             // 2. quartic graphs
             regular(9, 4), regular(10, 4), regular(11, 4), regular(12, 4),
             // 3. 2-regular graphs (unions of cycles)
@@ -68,7 +68,7 @@ public class Main {
     private static final boolean CONNECTIVITY = false;
 
     /** true = print every graph found (slower, and included in the time). */
-    private static final boolean PRINT_SOLUTIONS = false;
+    private static final boolean PRINT_SOLUTIONS = true;
 
     /** A model of {@link CpModels}: solves one degree sequence, printing under title if not null. */
     private interface Model {

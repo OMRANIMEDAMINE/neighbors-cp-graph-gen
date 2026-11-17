@@ -61,7 +61,7 @@ public class CpModels {
         IloCP cp = new IloCP();
         IloIntVar[][] M = buildRevLexNeighborsModel(cp, deg);
         addOptRevLexNeiDir(cp, M, deg);
-        if (connectivity) addSmallestNeighborBelow(cp, M);
+        if (connectivity) addLargestNeighborAbove(cp, M, deg);
         return solve(cp, M, true, title);
     }
 
@@ -170,8 +170,7 @@ public class CpModels {
      *   i, j not adjacent:  M[i]              ≤lex  M[j]                  (D slots)
      * </pre>
      * The zero slots are in the same places in both rows (equal degrees), so they never
-     * decide. Vertex 1 gets the smallest neighbors (N6_d3 prism: {@code 1: 2 3 4}), the
-     * order that the connectivity constraint {@link #addSmallestNeighborBelow} needs.
+     * decide. Vertex 1 gets the smallest neighbors (N6_d3 prism: {@code 1: 2 3 4}).
      * Checked by brute force on all graphic sequences with n ≤ 6: no graph is lost.
      */
     private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
@@ -232,14 +231,15 @@ public class CpModels {
     }
 
     /**
-     * Nei ({@code 2 5 0 0}): the smallest neighbor of vertex i, in slot 0, is below i.
-     * Posted for every row except the first (vertex 1 has no vertex below it). Every vertex
-     * then reaches vertex 1 by always stepping to a smaller label, so the graph is connected.
-     * Correct for regular sequences, with the increasing row order of {@link #addOptRevLexNeiDir}.
+     * Nei ({@code 2 5 0 0}): the largest neighbor of vertex i, in the last neighbor slot
+     * deg[i]-1, is above i. Posted for every row except the last. Like the Adj upper
+     * off-diagonal, correct for regular sequences only; with the increasing Nei row order it
+     * also loses some regular graphs (e.g. K3,3 for N6_d3).
      */
-    private static void addSmallestNeighborBelow(IloCP cp, IloIntVar[][] M) throws IloException {
-        for (int i = 1; i < M.length; i++) {
-            cp.add(cp.lt(M[i][0], i + 1));   // an empty slot holds 0 < i+1: deg-0 vertices pass
+    private static void addLargestNeighborAbove(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        for (int i = 0; i < M.length - 1; i++) {
+            int last = Math.max(deg[i] - 1, 0);   // deg 0: slot 0 holds 0, so the constraint fails
+            cp.add(cp.gt(M[i][last], i + 1));
         }
     }
 

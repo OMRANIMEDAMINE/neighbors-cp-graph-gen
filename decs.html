@@ -363,7 +363,7 @@ callout in section 4), not the number of distinct graphs.</p>
 <li><a href="#nei-sb">4. Symmetry breaking</a></li>
 <li><a href="#nei-con">5. Connectivity</a></li>
 <li><a href="#nei-full">6. Complete models</a></li>
-<li><a href="#nei-ex">7. Example</a></li>
+<li><a href="#nei-ex">7. Examples</a></li>
 <li><a href="#nei-res">8. Results</a></li>
 </ul>
 <h2 id="nei-enc">1. Encoding</h2>
@@ -425,28 +425,33 @@ for (int k = 0; k + 1 &lt; deg[i]; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));</co
 <p class="note" style="padding:0 16px 10px;margin:0">Each count is 0 or 1 because the neighbors are
 strictly ordered; zero slots never match since labels are \(\ge 1\).</p>
 </div>
-<h2 id="nei-sb">4. Symmetry breaking (OptRevLex) — rows of equal degree decrease</h2>
-<p>Nei uses its own order, independent of Adj, on the rows exactly as they are stored
+<h2 id="nei-sb">4. Symmetry breaking (OptRevLex) — rows of equal degree increase</h2>
+<p>Nei uses its own order, on the rows exactly as they are stored
 (<code>2 5 0 0</code>): for every pair \(i &lt; j\) of
-equal degree, <b>row \(i\) ≥ row \(j\)</b>, compared slot by slot <b>from the first slot</b>.
+equal degree, <b>row \(i\) ≤ row \(j\)</b>, compared slot by slot <b>from the first slot</b>.
 If \(i\) and \(j\) are adjacent, the slot holding \(j+1\) is first <b>deleted</b> from row \(i\)
 and the slot holding \(i+1\) from row \(j\), and the two rows are compared one slot shorter
-(<code>addOptRevLexNeiDir</code>).</p>
+(<code>addOptRevLexNeiDir</code>). The first vertices therefore get the smallest neighbors
+(N6_d3, section 7: <code>1: 2 3 4</code>).</p>
 <div class="c">
 <div class="m">$$\forall\, i &lt; j,\ \mathit{deg}_i = \mathit{deg}_j: \quad
-\begin{cases} M_j^{-(i+1)} \;\le_{lex}\; M_i^{-(j+1)} &amp; \text{if } i, j \text{ adjacent} \quad (D-1 \text{ slots})\\[2pt]
-M_j \;\le_{lex}\; M_i &amp; \text{otherwise} \quad (D \text{ slots}) \end{cases}$$</div>
+\begin{cases} M_i^{-(j+1)} \;\le_{lex}\; M_j^{-(i+1)} &amp; \text{if } i, j \text{ adjacent} \quad (D-1 \text{ slots})\\[2pt]
+M_i \;\le_{lex}\; M_j &amp; \text{otherwise} \quad (D \text{ slots}) \end{cases}$$</div>
 <div class="sz"><span><b>Size:</b> \(2P\) conditional constraints (<code>ifThen</code>)</span><span><b>Arity:</b> \(2D\) (rows \(i\) and \(j\))</span></div>
 <pre><code>for (int i = 0; i &lt; n; i++)
     for (int j = i + 1; j &lt; n; j++) {
         if (deg[i] != deg[j] || deg[i] == 0) continue;
         IloConstraint adjacent = cp.eq(cp.count(M[i], j + 1), 1);
-        cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[j], M[i])));
+        cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[i], M[j])));
         if (M[i].length &gt; 1)   // with one slot, deleting leaves nothing to compare
-            cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[j], i + 1),
-                                                        dropLabel(cp, M[i], j + 1))));
+            cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[i], j + 1),
+                                                        dropLabel(cp, M[j], i + 1))));
     }</code></pre>
 </div>
+<div class="callout"><b>Fixed on 2026-11-17.</b> The previous version compared the other way
+(row \(j\) ≤ row \(i\), rows decreasing). It gave the large labels to the first vertices
+(N6_d3 prism: <code>1: 4 5 6</code>) and was the OptLex order of Adj. <code>dropLabel</code>
+was not the problem: only the direction of the two <code>lexicographic</code> calls changed.</div>
 <h4><code>dropLabel</code> — delete the slot holding a label</h4>
 <div class="c">
 <div class="m">$$M_i^{-a}[k] = M_{ik} + s_k\,(M_{i,k+1} - M_{ik}), \qquad s_k = \sum_{m=0}^{k} [M_{im} = a] = [k \ge p], \qquad 0 \le k \le D-2$$</div>
@@ -465,18 +470,22 @@ the label is in the row, i.e. when \(i\) and \(j\) are adjacent.</p>
 <ul>
 <li><b>The zeros never decide.</b> Equal degrees mean the zero slots are in the same places in
   both rows.</li>
-<li><b>Sound.</b> Checked by brute force on all 144 graphic sequences with \(n \le 6\): no graph
-  is lost.</li>
-<li><b>It is the OptLex order of Adj.</b> Comparing the increasing lists from the first slot
-  decides at the smallest vertex of \((N(i)\setminus\{j\}) \,\triangle\, (N(j)\setminus\{i\})\), exactly
-  like OptLexAdj on the 0/1 rows without columns \(i, j\). Nei therefore keeps the labellings of
-  <code>optLexAdj</code>: for the path \((1,1,2,2,2)\) the labelling 1–5–3–4–2 (rows
-  <code>5 0 / 4 0 / 4 5 / 2 3 / 1 3</code>), and the same solution counts on every benchmark
-  instance (Adj vs Nei tab, section 2).</li>
+<li><b>Sound.</b> Checked by brute force on all 150 graphic sequences with \(n \le 6\) (isolated
+  vertices included): no graph is lost.</li>
+<li><b>It is the OptRevLex order of Adj with the labels reversed.</b> Comparing the increasing
+  lists from the first slot decides at the smallest vertex \(w\) of
+  \((N(i)\setminus\{j\}) \,\triangle\, (N(j)\setminus\{i\})\): row \(i\) ≤ row \(j\) iff
+  \(w\) is a neighbor of \(i\). Renaming every vertex \(v\) as \(n+1-v\) turns this into the
+  OptRevLexAdj rule (decided at the <i>largest</i> vertex of the difference). On a regular
+  sequence Nei therefore keeps exactly the labelled graphs of <code>optRevLexAdj</code>, reversed
+  (brute force, N4_d2 to N8_d4: identical sets), with the same solution counts. On a non-regular
+  sequence the renaming would also reverse the degree order, so the counts can differ
+  (Adj vs Nei tab, section 2).</li>
 </ul>
-<h2 id="nei-con">5. Connectivity — <code>addLargestNeighborAbove</code> (under revision)</h2>
+<h2 id="nei-con">5. Connectivity — <code>addLargestNeighborAbove</code></h2>
 <p>One unary constraint per vertex, on the slot of its largest neighbor (the last neighbor slot
-\(\mathit{deg}_i - 1\)), for every row except the last.</p>
+\(\mathit{deg}_i - 1\)), for every row except the last: every vertex has a neighbor above it,
+the Nei form of the Adj upper off-diagonal (Adj tab, section 5).</p>
 <div class="c">
 <div class="m">$$\forall i \in [0,n-1): \quad M_{i,\ \mathit{deg}_i - 1} &gt; i+1$$</div>
 <div class="sz"><span><b>Size:</b> \(n-1\)</span><span><b>Arity:</b> 1</span></div>
@@ -485,18 +494,26 @@ the label is in the row, i.e. when \(i\) and \(j\) are adjacent.</p>
     cp.add(cp.gt(M[i][last], i + 1));
 }</code></pre>
 </div>
-<div class="callout warn"><b>Not compatible with the current row order.</b> The order of section 4
-is the OptLex order of Adj, and the upper off-diagonal condition is only compatible with OptRevLex
-(as in Adj, section 5 of the Adj tab): decreasing rows give the large labels to the first
-vertices, and the last vertices are then left with smaller neighbors only. Combined with the order of section 4, this constraint loses connected graphs even
-for regular sequences: the cycles \(C_4, C_5, C_6\) and the 3- and 4-regular graphs on 6
-vertices (brute force, \(n \le 6\)). A compatible version is being validated.</div>
+<div class="callout warn"><b>Only partly compatible with the row order of section 4.</b> Brute
+force over the 96 sequences with \(n \le 6\) that have a connected graph:</div>
+<div class="tw"><table>
+<thead><tr><th>Connectivity rule</th><th>with</th><th>Sequences losing connected graphs</th><th>Examples</th></tr></thead>
+<tbody>
+<tr><td>Upper off-diagonal (Adj)</td><td>OptRevLexAdj</td><td class="num">7</td><td>all non-regular: <code>22233</code> (\(K_{2,3}\)), <code>112233</code>, <code>333344</code></td></tr>
+<tr><td><b>Largest neighbor above \(i\)</b> (current Nei)</td><td>Nei order</td><td class="num">10</td><td>the 7 above + <code>122333</code>, <code>223333</code> and the regular <code>333333</code>: \(K_{3,3}\) is lost</td></tr>
+</tbody></table></div>
+<ul>
+<li><b>Why "above" loses regular graphs.</b> The Nei order gives the first vertices the smallest
+  neighbors, so the last vertices tend to have only neighbors below them. In \(K_{3,3}\) the order
+  forces <code>5: 2 3 4</code>, whose largest neighbor 4 is below 5. On N8_d4 it loses 2 of the 6
+  connected graphs.</li>
+</ul>
 <h2 id="nei-full">6. Complete models</h2>
 <div class="grid2">
 <dl class="csp">
 <dt><code>optRevLexNeiDir(deg, connectivity)</code></dt>
 <dd>\(X\): \(M_{ik}\), \(nD\) variables (layout <code>2 5 0 0</code>)</dd>
-<dd>\(C\): N1 (\(&lt;\)) + N2 + decreasing row pairs (+ connectivity)</dd>
+<dd>\(C\): N1 (\(&lt;\)) + N2 + increasing row pairs (+ connectivity)</dd>
 <dd>Size: \(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + 2P\) (+ \(n-1\))</dd>
 </dl>
 </div>
@@ -507,7 +524,8 @@ vertices (brute force, \(n \le 6\)). A compatible version is being validated.</d
     if (connectivity) addLargestNeighborAbove(cp, M, deg);
     return solve(cp, M, true, title);
 }</code></pre>
-<h2 id="nei-ex">7. Example: \(\mathit{deg} = (1,2,2,3)\), the paw</h2>
+<h2 id="nei-ex">7. Examples</h2>
+<h4>\(\mathit{deg} = (1,2,2,3)\), the paw</h4>
 <p>Here \(n = 4\) and \(D = 3\): vertex 1 has two zero slots, vertices 2 and 3 one, vertex 4 none.
 The only equal-degree pair is \((2,3)\), and 2 and 3 are adjacent, so both rows lose one slot
 before the comparison.</p>
@@ -515,11 +533,9 @@ before the comparison.</p>
 <div class="card"><h4>OptRevLex: pair (2,3)</h4>
 <p>Rows: 2 = <code>3 4 0</code>, 3 = <code>2 4 0</code>.</p>
 <p>Row 2 without 3 → <code>4 0</code>; row 3 without 2 → <code>4 0</code>.<br>
-  Row 2 ≥ row 3: <code>4 0</code> ≥ <code>4 0</code>, <span class="kept">satisfied</span> (equal).</p>
+  Row 2 ≤ row 3: <code>4 0</code> ≤ <code>4 0</code>, <span class="kept">satisfied</span> (equal).</p>
 <p>Connectivity (slot \(\mathit{deg}_i - 1\)): vertex 1 → 4 &gt; 1, vertex 2 → 4 &gt; 2,
   vertex 3 → 4 &gt; 3, vertex 4 ignored: <span class="kept">satisfied</span>.</p></div>
-</div>
-<div class="grid2">
 <div class="card"><h4>optRevLexNeiDir output</h4>
 <div class="mat">Solution 1
 1: 4 0 0
@@ -527,6 +543,29 @@ before the comparison.</p>
 3: 2 4 0
 4: 1 2 3</div>
 <p class="note">The same with connectivity on.</p></div>
+</div>
+<h4>\(\mathit{deg} = (3,3,3,3,3,3)\): the prism and \(K_{3,3}\)</h4>
+<p>Both 3-regular graphs on 6 vertices are kept once each. Example checks on the prism: pair
+(1,2), adjacent: <code>2 3 4</code> without 2 = <code>3 4</code> ≤ <code>3 5</code> =
+<code>1 3 5</code> without 1; pair (1,5), not adjacent: <code>2 3 4</code> ≤ <code>2 4 6</code>.</p>
+<div class="grid2">
+<div class="card"><h4>Prism (connectivity off and on)</h4>
+<div class="mat">1: 2 3 4
+2: 1 3 5
+3: 1 2 6
+4: 1 5 6
+5: 2 4 6
+6: 3 4 5</div>
+<p>Largest neighbors 4, 5, 6, 6, 6: all above their vertex, <span class="kept">kept</span>.</p></div>
+<div class="card"><h4>\(K_{3,3}\) (connectivity off only)</h4>
+<div class="mat">1: 2 3 4
+2: 1 5 6
+3: 1 5 6
+4: 1 5 6
+5: 2 3 4
+6: 2 3 4</div>
+<p>Vertex 5: largest neighbor 4 &lt; 5, <span class="bad">removed</span> with connectivity on,
+although \(K_{3,3}\) is connected (section 5).</p></div>
 </div>
 <h2 id="nei-res">8. Results</h2>
 <p><code>optRevLexNeiDir</code> with the order of section 4, from the run of commit <code>f28f352</code>: connectivity off, all solutions enumerated, one run per cell. The comparison with Adj is in the Adj vs Nei tab.</p>
