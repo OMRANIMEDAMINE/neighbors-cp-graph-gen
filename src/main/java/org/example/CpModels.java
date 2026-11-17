@@ -61,7 +61,7 @@ public class CpModels {
         IloCP cp = new IloCP();
         IloIntVar[][] M = buildRevLexNeighborsModel(cp, deg);
         addOptRevLexNeiDir(cp, M, deg);
-        if (connectivity) addLargestNeighborAbove(cp, M, deg);
+        if (connectivity) addSmallestNeighborBelow(cp, M);
         return solve(cp, M, true, title);
     }
 
@@ -161,16 +161,18 @@ public class CpModels {
 
     /**
      * Neighbors, OptRevLex on the rows as stored ({@code 2 5 0 0}). Rows of equal degree
-     * decrease from top to bottom: for every pair i &lt; j with deg[i] = deg[j], row i ≥lex row j,
+     * increase from top to bottom: for every pair i &lt; j with deg[i] = deg[j], row i ≤lex row j,
      * compared slot by slot from the first slot. If i and j are adjacent, the slot holding j+1
      * is deleted from row i and the slot holding i+1 from row j before comparing: the two rows
      * are compared one slot shorter, no 0 is added.
      * <pre>
-     *   i, j adjacent:      M[j] without i+1  ≤lex  M[i] without j+1      (D-1 slots)
-     *   i, j not adjacent:  M[j]              ≤lex  M[i]                  (D slots)
+     *   i, j adjacent:      M[i] without j+1  ≤lex  M[j] without i+1      (D-1 slots)
+     *   i, j not adjacent:  M[i]              ≤lex  M[j]                  (D slots)
      * </pre>
      * The zero slots are in the same places in both rows (equal degrees), so they never
-     * decide. Checked by brute force on all graphic sequences with n ≤ 6: no graph is lost.
+     * decide. Vertex 1 gets the smallest neighbors (N6_d3 prism: {@code 1: 2 3 4}), the
+     * order that the connectivity constraint {@link #addSmallestNeighborBelow} needs.
+     * Checked by brute force on all graphic sequences with n ≤ 6: no graph is lost.
      */
     private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         int n = deg.length;
@@ -178,14 +180,16 @@ public class CpModels {
             for (int j = i + 1; j < n; j++) {
                 if (deg[i] != deg[j] || deg[i] == 0) continue;
                 IloConstraint adjacent = cp.eq(cp.count(M[i], j + 1), 1);
-                cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[j], M[i])));
+                cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[i], M[j])));
                 if (M[i].length > 1) {   // with one slot, deleting leaves nothing to compare
-                    cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[j], i + 1),
-                                                                dropLabel(cp, M[i], j + 1))));
+                    cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[i], j + 1),
+                                                                dropLabel(cp, M[j], i + 1))));
                 }
             }
         }
     }
+
+
 
     /**
      * The row with the slot p holding {@code label} deleted: D-1 slots, no 0 added. Only used
@@ -228,14 +232,14 @@ public class CpModels {
     }
 
     /**
-     * Nei ({@code 2 5 0 0}): the largest neighbor of vertex i, in the last neighbor slot
-     * deg[i]-1, is above i. Posted for every row except the last. Not yet compatible with the
-     * Nei row order: it loses connected graphs, even for regular sequences (e.g. C4).
+     * Nei ({@code 2 5 0 0}): the smallest neighbor of vertex i, in slot 0, is below i.
+     * Posted for every row except the first (vertex 1 has no vertex below it). Every vertex
+     * then reaches vertex 1 by always stepping to a smaller label, so the graph is connected.
+     * Correct for regular sequences, with the increasing row order of {@link #addOptRevLexNeiDir}.
      */
-    private static void addLargestNeighborAbove(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
-        for (int i = 0; i < M.length - 1; i++) {
-            int last = Math.max(deg[i] - 1, 0);   // deg 0: slot 0 holds 0, so the constraint fails
-            cp.add(cp.gt(M[i][last], i + 1));
+    private static void addSmallestNeighborBelow(IloCP cp, IloIntVar[][] M) throws IloException {
+        for (int i = 1; i < M.length; i++) {
+            cp.add(cp.lt(M[i][0], i + 1));   // an empty slot holds 0 < i+1: deg-0 vertices pass
         }
     }
 
