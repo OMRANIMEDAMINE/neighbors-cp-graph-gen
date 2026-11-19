@@ -109,9 +109,9 @@ neighbors of each vertex. Adj comes with two symmetry breakings (OptLex and OptR
 OptRevLex only; both have an optional connectivity constraint.</p>
 <div class="meta">
   <span>Code: <b><code>CpModels.java</code></b></span>
-  <span>Branch <b>newpaper</b>, commit <b>3f2f30f</b></span>
+  <span>Branch <b>newpaper</b>, commit <b>a912ffa</b> + new Nei order</span>
   <span>Solver: <b>IBM CP Optimizer 22.1.1</b></span>
-  <span>Updated <b>2026-11-13</b></span>
+  <span>Updated <b>2026-11-18</b></span>
 </div>
 </header>
 
@@ -425,33 +425,50 @@ for (int k = 0; k + 1 &lt; deg[i]; k++) cp.add(cp.lt(M[i][k], M[i][k + 1]));</co
 <p class="note" style="padding:0 16px 10px;margin:0">Each count is 0 or 1 because the neighbors are
 strictly ordered; zero slots never match since labels are \(\ge 1\).</p>
 </div>
-<h2 id="nei-sb">4. Symmetry breaking (OptRevLex) — rows of equal degree increase</h2>
-<p>Nei uses its own order, on the rows exactly as they are stored
-(<code>2 5 0 0</code>): for every pair \(i &lt; j\) of
-equal degree, <b>row \(i\) ≤ row \(j\)</b>, compared slot by slot <b>from the first slot</b>.
-If \(i\) and \(j\) are adjacent, the slot holding \(j+1\) is first <b>deleted</b> from row \(i\)
-and the slot holding \(i+1\) from row \(j\), and the two rows are compared one slot shorter
-(<code>addOptRevLexNeiDir</code>). The first vertices therefore get the smallest neighbors
-(N6_d3, section 7: <code>1: 2 3 4</code>).</p>
+<h2 id="nei-sb">4. Symmetry breaking (OptRevLex) — largest neighbor first</h2>
+<p>For every pair \(i &lt; j\) of equal degree \(d\), only the \(d\) neighbor slots of each row
+are kept (the zero slots are left out). The labels \(i+1\) and \(j+1\) are removed from
+<b>both</b> rows, and the neighbors that remain are compared slot by slot <b>from the last
+neighbor slot down to the first</b>, i.e. largest neighbor first: <b>row \(i\) ≤ row \(j\)</b>
+(<code>addOptRevLexNeiDir</code>). Row \(i\) never holds its own label \(i+1\), so in practice
+only \(j+1\) is removed from row \(i\) and \(i+1\) from row \(j\), and only when \(i\) and \(j\)
+are adjacent; both rows then lose one slot.</p>
 <div class="c">
-<div class="m">$$\forall\, i &lt; j,\ \mathit{deg}_i = \mathit{deg}_j: \quad
-\begin{cases} M_i^{-(j+1)} \;\le_{lex}\; M_j^{-(i+1)} &amp; \text{if } i, j \text{ adjacent} \quad (D-1 \text{ slots})\\[2pt]
-M_i \;\le_{lex}\; M_j &amp; \text{otherwise} \quad (D \text{ slots}) \end{cases}$$</div>
-<div class="sz"><span><b>Size:</b> \(2P\) conditional constraints (<code>ifThen</code>)</span><span><b>Arity:</b> \(2D\) (rows \(i\) and \(j\))</span></div>
+<div class="m">$$\forall\, i &lt; j,\ \mathit{deg}_i = \mathit{deg}_j = d: \quad
+\begin{cases} \operatorname{rev}\!\big(M_{i,0..d-1}^{-(j+1)}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_{j,0..d-1}^{-(i+1)}\big) &amp; \text{if } i, j \text{ adjacent} \quad (d-1 \text{ slots})\\[2pt]
+\operatorname{rev}\!\big(M_{i,0..d-1}\big) \;\le_{lex}\; \operatorname{rev}\!\big(M_{j,0..d-1}\big) &amp; \text{otherwise} \quad (d \text{ slots}) \end{cases}$$</div>
+<div class="sz"><span><b>Size:</b> \(2P\) conditional constraints (<code>ifThen</code>), \(P\) when \(d = 1\)</span><span><b>Arity:</b> \(2D\) (rows \(i\) and \(j\))</span></div>
 <pre><code>for (int i = 0; i &lt; n; i++)
     for (int j = i + 1; j &lt; n; j++) {
-        if (deg[i] != deg[j] || deg[i] == 0) continue;
+        int d = deg[i];
+        if (d != deg[j] || d == 0) continue;
+        IloIntExpr[] rowI = neighborSlots(M[i], d), rowJ = neighborSlots(M[j], d);
         IloConstraint adjacent = cp.eq(cp.count(M[i], j + 1), 1);
-        cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[i], M[j])));
-        if (M[i].length &gt; 1)   // with one slot, deleting leaves nothing to compare
-            cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[i], j + 1),
-                                                        dropLabel(cp, M[j], i + 1))));
+        cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(reverse(rowI), reverse(rowJ))));
+        if (d &gt; 1)   // with one neighbor, removing it leaves nothing to compare
+            cp.add(cp.ifThen(adjacent, cp.lexicographic(reverse(dropLabel(cp, rowI, j + 1)),
+                                                        reverse(dropLabel(cp, rowJ, i + 1)))));
     }</code></pre>
 </div>
-<div class="callout"><b>Fixed on 2026-11-17.</b> The previous version compared the other way
-(row \(j\) ≤ row \(i\), rows decreasing). It gave the large labels to the first vertices
-(N6_d3 prism: <code>1: 4 5 6</code>) and was the OptLex order of Adj. <code>dropLabel</code>
-was not the problem: only the direction of the two <code>lexicographic</code> calls changed.</div>
+<div class="callout"><b>Changed on 2026-11-18.</b> The previous version compared the rows from the
+<i>first</i> slot (smallest neighbor first). It accepted the labelling of \(K_{3,3}\) below, where
+rows 4 and 5 give <code>1 6</code> ≤ <code>2 3</code>; read largest first they give
+<code>6 1</code> &gt; <code>3 2</code>, so it is now rejected. The prism labelling is accepted by
+both.
+<div class="grid2" style="margin-top:8px">
+<div class="mat">1: 2 3 4
+2: 1 5 6
+3: 1 5 6
+4: 1 5 6     rows 4, 5: 6 1 &gt; 3 2
+5: 2 3 4     rejected
+6: 2 3 4</div>
+<div class="mat">1: 2 3 4
+2: 1 3 5
+3: 1 2 6
+4: 1 5 6
+5: 2 4 6     accepted
+6: 3 4 5</div>
+</div></div>
 <h4><code>dropLabel</code> — delete the slot holding a label</h4>
 <div class="c">
 <div class="m">$$M_i^{-a}[k] = M_{ik} + s_k\,(M_{i,k+1} - M_{ik}), \qquad s_k = \sum_{m=0}^{k} [M_{im} = a] = [k \ge p], \qquad 0 \le k \le D-2$$</div>
@@ -464,23 +481,21 @@ for (int k = 0; k &lt; D - 1; k++) {
 }</code></pre>
 </div>
 <p>\(p\) is the slot holding the label; the slots after it move one step left and the row
-becomes one slot shorter, with no 0 added. Examples: <code>2 5 0 0</code> without 2 →
-<code>5 0 0</code>. It is only used when
-the label is in the row, i.e. when \(i\) and \(j\) are adjacent.</p>
+becomes one slot shorter, with no 0 added. Example: <code>2 5 7</code> without 2 →
+<code>5 7</code>. Here it is applied to the \(d\) neighbor slots only, and only when the label
+is in the row, i.e. when \(i\) and \(j\) are adjacent.</p>
 <ul>
-<li><b>The zeros never decide.</b> Equal degrees mean the zero slots are in the same places in
-  both rows.</li>
-<li><b>Sound.</b> Checked by brute force on all 150 graphic sequences with \(n \le 6\) (isolated
-  vertices included): no graph is lost.</li>
-<li><b>It is the OptRevLex order of Adj with the labels reversed.</b> Comparing the increasing
-  lists from the first slot decides at the smallest vertex \(w\) of
-  \((N(i)\setminus\{j\}) \,\triangle\, (N(j)\setminus\{i\})\): row \(i\) ≤ row \(j\) iff
-  \(w\) is a neighbor of \(i\). Renaming every vertex \(v\) as \(n+1-v\) turns this into the
-  OptRevLexAdj rule (decided at the <i>largest</i> vertex of the difference). On a regular
-  sequence Nei therefore keeps exactly the labelled graphs of <code>optRevLexAdj</code>, reversed
-  (brute force, N4_d2 to N8_d4: identical sets), with the same solution counts. On a non-regular
-  sequence the renaming would also reverse the degree order, so the counts can differ
-  (Adj vs Nei tab, section 2).</li>
+<li><b>The zeros never decide.</b> They are left out of the comparison (<code>neighborSlots</code>
+  keeps the first \(d\) slots).</li>
+<li><b>It is the OptRevLex order of Adj.</b> With \(S_i = N(i)\setminus\{j\}\) and
+  \(S_j = N(j)\setminus\{i\}\) (same size), reading the increasing lists from the end decides at
+  the <i>largest</i> vertex \(w\) of \(S_i \,\triangle\, S_j\): row \(i\) ≤ row \(j\) iff
+  \(w \in S_j\). OptRevLexAdj reads row \(i\) without columns \(i, j\) from the right and decides
+  at the same \(w\), with the same answer. Both models therefore keep exactly the same labelled
+  graphs, on every degree sequence.</li>
+<li><b>Sound.</b> Checked by brute force on all 278 graphic sequences with \(n \le 6\), sorted
+  increasingly and decreasingly: no graph is lost, and the solution counts equal those of
+  <code>optRevLexAdj</code> on every sequence.</li>
 </ul>
 <h2 id="nei-con">5. Connectivity — <code>addLargestNeighborAbove</code></h2>
 <p>One unary constraint per vertex, on the slot of its largest neighbor (the last neighbor slot
@@ -494,26 +509,29 @@ the Nei form of the Adj upper off-diagonal (Adj tab, section 5).</p>
     cp.add(cp.gt(M[i][last], i + 1));
 }</code></pre>
 </div>
-<div class="callout warn"><b>Only partly compatible with the row order of section 4.</b> Brute
-force over the 96 sequences with \(n \le 6\) that have a connected graph:</div>
+<div class="callout"><b>Same behavior as the Adj upper off-diagonal.</b> \(M_{i,\mathit{deg}_i-1} &gt; i+1\)
+says exactly that vertex \(i\) has a neighbor above it, and the Nei order is the OptRevLex order
+of Adj (section 4), so both models keep the same connected labelled graphs. Brute force over the
+96 sequences with \(n \le 6\) that have a connected graph:</div>
 <div class="tw"><table>
-<thead><tr><th>Connectivity rule</th><th>with</th><th>Sequences losing connected graphs</th><th>Examples</th></tr></thead>
+<thead><tr><th>Connectivity rule</th><th>with</th><th>Sequences losing connected graphs</th><th>Which</th></tr></thead>
 <tbody>
-<tr><td>Upper off-diagonal (Adj)</td><td>OptRevLexAdj</td><td class="num">7</td><td>all non-regular: <code>22233</code> (\(K_{2,3}\)), <code>112233</code>, <code>333344</code></td></tr>
-<tr><td><b>Largest neighbor above \(i\)</b> (current Nei)</td><td>Nei order</td><td class="num">10</td><td>the 7 above + <code>122333</code>, <code>223333</code> and the regular <code>333333</code>: \(K_{3,3}\) is lost</td></tr>
+<tr><td>Upper off-diagonal (Adj)</td><td>OptRevLexAdj</td><td class="num">7</td><td rowspan="2">the same 7, all non-regular, one graph lost each: <code>22233</code> (\(K_{2,3}\)), <code>112233</code>, <code>122234</code>, <code>222233</code>, <code>222244</code>, <code>223344</code>, <code>333344</code></td></tr>
+<tr><td><b>Largest neighbor above \(i\)</b> (Nei)</td><td>Nei order</td><td class="num">7</td></tr>
 </tbody></table></div>
 <ul>
-<li><b>Why "above" loses regular graphs.</b> The Nei order gives the first vertices the smallest
-  neighbors, so the last vertices tend to have only neighbors below them. In \(K_{3,3}\) the order
-  forces <code>5: 2 3 4</code>, whose largest neighbor 4 is below 5. On N8_d4 it loses 2 of the 6
-  connected graphs.</li>
+<li><b>Regular sequences: no loss.</b> With the previous Nei order (first slot first) this rule lost
+  \(K_{3,3}\) and 2 of the 6 connected graphs of N8_d4; it now gives the same counts as
+  OptRevLexAdjCon on every regular instance (section 8).</li>
+<li><b>Non-regular sequences:</b> like Adj, a connected graph can be lost, because only vertices
+  of equal degree can be relabelled.</li>
 </ul>
 <h2 id="nei-full">6. Complete models</h2>
 <div class="grid2">
 <dl class="csp">
 <dt><code>optRevLexNeiDir(deg, connectivity)</code></dt>
 <dd>\(X\): \(M_{ik}\), \(nD\) variables (layout <code>2 5 0 0</code>)</dd>
-<dd>\(C\): N1 (\(&lt;\)) + N2 + increasing row pairs (+ connectivity)</dd>
+<dd>\(C\): N1 (\(&lt;\)) + N2 + row pairs compared largest neighbor first (+ connectivity)</dd>
 <dd>Size: \(\sum_i \max(\mathit{deg}_i-1,0) + n(n-1)/2 + 2P\) (+ \(n-1\))</dd>
 </dl>
 </div>
@@ -532,8 +550,9 @@ before the comparison.</p>
 <div class="grid2">
 <div class="card"><h4>OptRevLex: pair (2,3)</h4>
 <p>Rows: 2 = <code>3 4 0</code>, 3 = <code>2 4 0</code>.</p>
-<p>Row 2 without 3 → <code>4 0</code>; row 3 without 2 → <code>4 0</code>.<br>
-  Row 2 ≤ row 3: <code>4 0</code> ≤ <code>4 0</code>, <span class="kept">satisfied</span> (equal).</p>
+<p>Neighbor slots (\(d = 2\)): row 2 → <code>3 4</code>, row 3 → <code>2 4</code>.
+  Row 2 without 3 → <code>4</code>; row 3 without 2 → <code>4</code>.<br>
+  Row 2 ≤ row 3, read from the end: <code>4</code> ≤ <code>4</code>, <span class="kept">satisfied</span> (equal).</p>
 <p>Connectivity (slot \(\mathit{deg}_i - 1\)): vertex 1 → 4 &gt; 1, vertex 2 → 4 &gt; 2,
   vertex 3 → 4 &gt; 3, vertex 4 ignored: <span class="kept">satisfied</span>.</p></div>
 <div class="card"><h4>optRevLexNeiDir output</h4>
@@ -545,9 +564,10 @@ before the comparison.</p>
 <p class="note">The same with connectivity on.</p></div>
 </div>
 <h4>\(\mathit{deg} = (3,3,3,3,3,3)\): the prism and \(K_{3,3}\)</h4>
-<p>Both 3-regular graphs on 6 vertices are kept once each. Example checks on the prism: pair
-(1,2), adjacent: <code>2 3 4</code> without 2 = <code>3 4</code> ≤ <code>3 5</code> =
-<code>1 3 5</code> without 1; pair (1,5), not adjacent: <code>2 3 4</code> ≤ <code>2 4 6</code>.</p>
+<p>Both 3-regular graphs on 6 vertices are kept once each. Example checks on the prism, rows
+read from the end: pair (1,2), adjacent: <code>2 3 4</code> without 2 → <code>4 3</code> ≤
+<code>5 3</code> ← <code>1 3 5</code> without 1; pair (1,5), not adjacent: <code>4 3 2</code> ≤
+<code>6 4 2</code>.</p>
 <div class="grid2">
 <div class="card"><h4>Prism (connectivity off and on)</h4>
 <div class="mat">1: 2 3 4
@@ -557,80 +577,113 @@ before the comparison.</p>
 5: 2 4 6
 6: 3 4 5</div>
 <p>Largest neighbors 4, 5, 6, 6, 6: all above their vertex, <span class="kept">kept</span>.</p></div>
-<div class="card"><h4>\(K_{3,3}\) (connectivity off only)</h4>
-<div class="mat">1: 2 3 4
-2: 1 5 6
-3: 1 5 6
-4: 1 5 6
-5: 2 3 4
-6: 2 3 4</div>
-<p>Vertex 5: largest neighbor 4 &lt; 5, <span class="bad">removed</span> with connectivity on,
-although \(K_{3,3}\) is connected (section 5).</p></div>
+<div class="card"><h4>\(K_{3,3}\) (connectivity off and on)</h4>
+<div class="mat">1: 3 4 5
+2: 3 4 5
+3: 1 2 6
+4: 1 2 6
+5: 1 2 6
+6: 3 4 5</div>
+<p>Largest neighbors 5, 5, 6, 6, 6: all above their vertex, <span class="kept">kept</span>. The
+labelling <code>1: 2 3 4 / … / 5: 2 3 4</code> of the previous order is now rejected
+(section 4).</p></div>
 </div>
 <h2 id="nei-res">8. Results</h2>
-<p><code>optRevLexNeiDir</code> with the order of section 4, from the run of commit <code>f28f352</code>: connectivity off, all solutions enumerated, one run per cell. The comparison with Adj is in the Adj vs Nei tab.</p>
+<p><code>optRevLexNeiDir</code> with the order of section 4, working tree on commit <code>a912ffa</code> with the new <code>addOptRevLexNeiDir</code> (2026-11-18): all solutions
+enumerated, one run per cell, on a loaded machine (see the Adj vs Nei tab). The comparison with Adj
+is in the Adj vs Nei tab.</p>
 <div class="tw"><table><thead><tr><th>Sequence</th><th>solutions</th><th>time (s)</th><th>memory (MB)</th></tr></thead><tbody>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>Paw (sample)</td></tr>
-<tr><td><code>N4_1223</code></td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>1.8</td></tr>
+<tr><td><code>N4_1223</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>1.8</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>warm-up</td></tr>
-<tr><td><code>N6_d3</code></td><td class='num'>2</td><td class='num'>0.02</td><td class='num'>2.7</td></tr>
+<tr><td><code>N6_d3</code></td><td class='num'>2</td><td class='num'>0.02</td><td class='num'>2.8</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>1. Cubic graphs</td></tr>
-<tr><td><code>N8_d3</code></td><td class='num'>13</td><td class='num'>0.04</td><td class='num'>3.8</td></tr>
-<tr><td><code>N10_d3</code></td><td class='num'>192</td><td class='num'>0.11</td><td class='num'>5.4</td></tr>
-<tr><td><code>N12_d3</code></td><td class='num'>4,984</td><td class='num'>1.62</td><td class='num'>7.6</td></tr>
-<tr><td><code>N14_d3</code></td><td class='num'>172,753</td><td class='num'>38.51</td><td class='num'>17.2</td></tr>
+<tr><td><code>N8_d3</code></td><td class='num'>15</td><td class='num'>0.06</td><td class='num'>3.8</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>133</td><td class='num'>0.42</td><td class='num'>5.3</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,462</td><td class='num'>5.12</td><td class='num'>6.9</td></tr>
+<tr><td><code>N14_d3</code></td><td class='num'>18,345</td><td class='num'>42.81</td><td class='num'>10.3</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>2. Quartic graphs</td></tr>
-<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.09</td><td class='num'>5.3</td></tr>
-<tr><td><code>N10_d4</code></td><td class='num'>750</td><td class='num'>0.57</td><td class='num'>7.1</td></tr>
-<tr><td><code>N11_d4</code></td><td class='num'>7,982</td><td class='num'>4.77</td><td class='num'>8.2</td></tr>
-<tr><td><code>N12_d4</code></td><td class='num'>98,223</td><td class='num'>47.13</td><td class='num'>13.3</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.25</td><td class='num'>5.1</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>614</td><td class='num'>2.11</td><td class='num'>6.5</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,111</td><td class='num'>17.46</td><td class='num'>7.9</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,729</td><td class='num'>129.90</td><td class='num'>10.8</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>3. 2-regular graphs (unions of cycles)</td></tr>
-<tr><td><code>N10_d2</code></td><td class='num'>16</td><td class='num'>0.02</td><td class='num'>4.1</td></tr>
-<tr><td><code>N12_d2</code></td><td class='num'>60</td><td class='num'>0.07</td><td class='num'>5.2</td></tr>
-<tr><td><code>N15_d2</code></td><td class='num'>543</td><td class='num'>0.73</td><td class='num'>7.7</td></tr>
+<tr><td><code>N10_d2</code></td><td class='num'>9</td><td class='num'>0.03</td><td class='num'>4.1</td></tr>
+<tr><td><code>N12_d2</code></td><td class='num'>19</td><td class='num'>0.05</td><td class='num'>5.2</td></tr>
+<tr><td><code>N15_d2</code></td><td class='num'>60</td><td class='num'>0.25</td><td class='num'>7.4</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>4. Dense complements</td></tr>
-<tr><td><code>N10_d6</code></td><td class='num'>133</td><td class='num'>0.38</td><td class='num'>8.2</td></tr>
-<tr><td><code>N10_d5</code></td><td class='num'>614</td><td class='num'>0.40</td><td class='num'>7.9</td></tr>
-<tr><td><code>N12_d8</code></td><td class='num'>1,462</td><td class='num'>6.28</td><td class='num'>14.7</td></tr>
+<tr><td><code>N10_d6</code></td><td class='num'>192</td><td class='num'>1.11</td><td class='num'>8.2</td></tr>
+<tr><td><code>N10_d5</code></td><td class='num'>750</td><td class='num'>3.77</td><td class='num'>7.5</td></tr>
+<tr><td><code>N12_d8</code></td><td class='num'>4,984</td><td class='num'>82.08</td><td class='num'>14.5</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>5. Tree degree sequences</td></tr>
-<tr><td><code>N12_111111222334</code></td><td class='num'>585</td><td class='num'>0.12</td><td class='num'>4.6</td></tr>
-<tr><td><code>N14_11111112223334</code></td><td class='num'>5,939</td><td class='num'>1.22</td><td class='num'>5.7</td></tr>
+<tr><td><code>N12_111111222334</code></td><td class='num'>369</td><td class='num'>0.05</td><td class='num'>4.0</td></tr>
+<tr><td><code>N14_11111112223334</code></td><td class='num'>2,209</td><td class='num'>0.41</td><td class='num'>4.6</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>6. Bi-degree graphs</td></tr>
-<tr><td><code>N10_2222223333</code></td><td class='num'>392</td><td class='num'>0.16</td><td class='num'>3.9</td></tr>
-<tr><td><code>N12_222222224444</code></td><td class='num'>4,702</td><td class='num'>5.06</td><td class='num'>5.5</td></tr>
+<tr><td><code>N10_2222223333</code></td><td class='num'>228</td><td class='num'>0.14</td><td class='num'>3.7</td></tr>
+<tr><td><code>N12_222222224444</code></td><td class='num'>1,303</td><td class='num'>1.87</td><td class='num'>4.6</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>7. Heterogeneous (hubs + leaves)</td></tr>
-<tr><td><code>N11_11222333445</code></td><td class='num'>38,210</td><td class='num'>6.45</td><td class='num'>6.1</td></tr>
-<tr><td><code>N13_1111222233336</code></td><td class='num'>17,259</td><td class='num'>4.18</td><td class='num'>6.6</td></tr>
-<tr><td><code>N14_11111122233457</code></td><td class='num'>27,642</td><td class='num'>4.46</td><td class='num'>7.9</td></tr>
+<tr><td><code>N11_11222333445</code></td><td class='num'>28,668</td><td class='num'>4.82</td><td class='num'>5.8</td></tr>
+<tr><td><code>N13_1111222233336</code></td><td class='num'>8,530</td><td class='num'>1.59</td><td class='num'>5.6</td></tr>
+<tr><td><code>N14_11111122233457</code></td><td class='num'>23,272</td><td class='num'>3.70</td><td class='num'>7.1</td></tr>
 <tr><td colspan='4' style='background:var(--soft);font-weight:600'>8. Unigraphic (one graph)</td></tr>
-<tr><td><code>N12_1.1.1.1.1.1.1.1.1.1.1.11</code></td><td class='num'>1</td><td class='num'>0.02</td><td class='num'>5.2</td></tr>
-<tr><td><code>N10_1234556789</code></td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>2.2</td></tr>
+<tr><td><code>N12_1.1.1.1.1.1.1.1.1.1.1.11</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>2.8</td></tr>
+<tr><td><code>N10_1234556789</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>2.2</td></tr>
 <tr><td><code>N14_1.2.3.4.5.6.7.7.8.9.10.11.12.13</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>2.9</td></tr>
-<tr><td><code>N10_d8</code></td><td class='num'>1</td><td class='num'>0.02</td><td class='num'>9.8</td></tr>
+<tr><td><code>N10_d8</code></td><td class='num'>1</td><td class='num'>0.03</td><td class='num'>9.8</td></tr>
 </tbody></table></div>
-<p class="note">No connectivity results yet: the Nei connectivity constraint is under revision (section 5).</p>
+<h4>With connectivity (regular sequences)</h4>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th rowspan='2'>connected graphs<br>(both models)</th><th colspan='2'>Time (s)</th><th rowspan='2'>RevLexAdj / Nei</th><th rowspan='2'>Memory (MB)<br>RevLexAdj / Nei</th></tr><tr><th>OptRevLexAdjCon</th><th>NeiCon</th></tr></thead><tbody>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>warm-up</td></tr>
+<tr><td><code>N6_d3</code></td><td class='num'>2</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.8 / 2.7</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>1. Cubic graphs</td></tr>
+<tr><td><code>N8_d3</code></td><td class='num'>14</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 3.8</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>129</td><td class='num'>0.06</td><td class='num'>0.10</td><td class='num tie'>n.s.</td><td class='num'>3.2 / 5.6</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,429</td><td class='num'>0.98</td><td class='num'>0.88</td><td class='num tie'>1.12×</td><td class='num'>4.2 / 7.5</td></tr>
+<tr><td><code>N14_d3</code></td><td class='num'>18,025</td><td class='num'>52.20</td><td class='num'>12.62</td><td class='num win'>4.14×</td><td class='num'>5.8 / 10.3</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>2. Quartic graphs</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>0.19</td><td class='num tie'>n.s.</td><td class='num'>2.8 / 5.3</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>613</td><td class='num'>0.15</td><td class='num'>1.42</td><td class='num lose'>0.11×</td><td class='num'>3.8 / 6.5</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,109</td><td class='num'>2.36</td><td class='num'>10.44</td><td class='num lose'>0.23×</td><td class='num'>5.3 / 8.2</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,722</td><td class='num'>25.83</td><td class='num'>86.14</td><td class='num lose'>0.30×</td><td class='num'>7.5 / 11.4</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>3. 2-regular graphs (unions of cycles)</td></tr>
+<tr><td><code>N10_d2</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.6 / 4.0</td></tr>
+<tr><td><code>N12_d2</code></td><td class='num'>1</td><td class='num'>0.02</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>3.0 / 4.9</td></tr>
+<tr><td><code>N15_d2</code></td><td class='num'>1</td><td class='num'>0.56</td><td class='num'>0.02</td><td class='num win'>25.36×</td><td class='num'>4.2 / 7.1</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>4. Dense complements</td></tr>
+<tr><td><code>N10_d6</code></td><td class='num'>192</td><td class='num'>0.05</td><td class='num'>1.50</td><td class='num lose'>0.03×</td><td class='num'>3.3 / 8.3</td></tr>
+<tr><td><code>N10_d5</code></td><td class='num'>750</td><td class='num'>0.24</td><td class='num'>3.73</td><td class='num lose'>0.06×</td><td class='num'>3.6 / 7.5</td></tr>
+<tr><td><code>N12_d8</code></td><td class='num'>4,984</td><td class='num'>2.49</td><td class='num'>89.15</td><td class='num lose'>0.03×</td><td class='num'>4.5 / 14.5</td></tr>
+<tr><td><b>Total (families 1-4)</b></td><td></td><td class='num'><b>84.98</b></td><td class='num'><b>206.24</b></td><td class='num lose'>0.41×</td><td></td></tr>
+</tbody></table></div>
 </section>
 <!-- ===================================================================== COMPARISON -->
 <section role="tabpanel" id="cmp" aria-labelledby="tab-cmp" hidden>
 
 <ul class="toc">
   <li><a href="#cmp-set">1. Benchmark set</a></li>
-  <li><a href="#cmp-order">2. Nei order = OptLex of Adj</a></li>
+  <li><a href="#cmp-order">2. Nei order = OptRevLex of Adj</a></li>
   <li><a href="#cmp-model">3. Models side by side</a></li>
   <li><a href="#cmp-fam">4. Results by family</a></li>
   <li><a href="#cmp-detail">5. Results by instance</a></li>
-  <li><a href="#cmp-dens">6. Density</a></li>
-  <li><a href="#cmp-ok">7. Correctness</a></li>
-  <li><a href="#cmp-concl">8. Conclusions</a></li>
+  <li><a href="#cmp-con">6. Connectivity</a></li>
+  <li><a href="#cmp-dens">7. Density</a></li>
+  <li><a href="#cmp-ok">8. Correctness</a></li>
+  <li><a href="#cmp-concl">9. Conclusions</a></li>
 </ul>
 
 <h2 id="cmp-set">1. Benchmark set</h2>
 <p>26 degree sequences (plus a warm-up row) chosen from graph theory, grouped in 8 families,
-and the paw as a first sample. Three models were run on every sequence with
-<code>Main.java</code> (branch <code>newpaper</code>, commit <code>f28f352</code>):
-<code>optLexAdj</code>, <code>optRevLexAdj</code> and <code>optRevLexNeiDir</code> (Nei, with
-its own row order, Nei tab section 4); connectivity off, all solutions enumerated, one run per
-cell.</p>
+and the paw as a first sample. Three models were run on every sequence (branch
+<code>newpaper</code>, working tree on commit <code>a912ffa</code> with the new
+<code>addOptRevLexNeiDir</code>, 2026-11-18): <code>optLexAdj</code>, <code>optRevLexAdj</code>
+and <code>optRevLexNeiDir</code> (Nei, Nei tab section 4); connectivity off, all solutions
+enumerated, one run per cell. The regular families 1-4 were also run with connectivity on
+(section 6).</p>
+<div class="callout warn"><b>Loaded machine.</b> Other programs (browser, IDE) were running: the
+load average was about 6 on 4 cores. Adj took about twice as long as in the previous run
+(OptRevLexAdj: 136.41 s in total against 66.44 s; OptLexAdj on N14_d3: 191.05 s against
+74.00 s). Ratios inside this run are more reliable than times compared across runs, but small
+differences are noise; a rerun on an idle machine is needed before quoting times.</div>
 <div class="tw"><table>
 <thead><tr><th>Family</th><th>Instances</th><th>What it tests</th></tr></thead>
 <tbody>
@@ -644,24 +697,23 @@ cell.</p>
 <tr><td>8. Unigraphic</td><td>star \(K_{1,11}\), antiregular \(n = 10, 14\), cocktail party N10_d8</td><td>a single graph: fixed model overhead</td></tr>
 </tbody></table></div>
 
-<h2 id="cmp-order">2. The Nei order is the OptLex order of Adj</h2>
+<h2 id="cmp-order">2. The Nei order is the OptRevLex order of Adj</h2>
 <p>In this run <code>optRevLexNeiDir</code> returns exactly the solution counts of
-<code>optLexAdj</code> on all 27 rows (e.g. 172,753 for N14_d3), not those of
-<code>optRevLexAdj</code> (18,345). This follows from the definitions, for every pair
-\(i &lt; j\) of equal degree, with \(S_i = N(i)\setminus\{j\}\) and \(S_j = N(j)\setminus\{i\}\):</p>
+<code>optRevLexAdj</code> on all 27 rows (e.g. 18,345 for N14_d3), and the same connected counts
+on all 15 regular rows with connectivity on. This follows from the definitions, for every pair
+\(i &lt; j\) of equal degree, with \(S_i = N(i)\setminus\{j\}\) and \(S_j = N(j)\setminus\{i\}\)
+(same size):</p>
 <ul>
-  <li><b>OptLexAdj</b> compares rows \(i\) and \(j\) without columns \(i, j\), from the left: the
-  first differing column is the <i>smallest</i> vertex \(w\) of \(S_i \,\triangle\, S_j\), and
+  <li><b>OptRevLexAdj</b> compares rows \(i\) and \(j\) without columns \(i, j\), from the right:
+  the first differing column is the <i>largest</i> vertex \(w\) of \(S_i \,\triangle\, S_j\), and
   row \(i \le\) row \(j\) iff \(w \in S_j\).</li>
-  <li><b>Nei</b> compares the increasing lists of \(S_i\) and \(S_j\) (the adjacent labels deleted,
-  same length since the degrees are equal) from the first slot: they first differ at the same
-  \(w\), the list holding \(w\) is the smaller one, so row \(i \ge\) row \(j\) iff \(w \in S_j\).</li>
+  <li><b>Nei</b> compares the increasing lists of \(S_i\) and \(S_j\) from the last slot: they first
+  differ at the same \(w\), and the list holding the larger value there is the one holding \(w\),
+  so row \(i \le\) row \(j\) iff \(w \in S_j\).</li>
 </ul>
-<div class="callout"><b>Consequence.</b> Nei and OptLexAdj keep the same labelled graphs, so the
-encoding comparison is <b>OptLexAdj against Nei</b> (same solutions, different encodings).
-OptRevLexAdj is a different order that keeps far fewer solutions on sparse graphs; it is shown as
-a reference. It also explains the Nei connectivity issue: the upper off-diagonal constraint is
-only compatible with OptRevLex, in Adj as well.</div>
+<div class="callout"><b>Consequence.</b> Nei and OptRevLexAdj keep exactly the same labelled graphs,
+with and without connectivity, so the encoding comparison is <b>OptRevLexAdj against Nei</b>.
+OptLexAdj is shown as a reference.</div>
 
 <h2 id="cmp-model">3. Models side by side</h2>
 <div class="tw"><table>
@@ -673,8 +725,8 @@ only compatible with OptRevLex, in Adj as well.</div>
 <tr><td>Degree</td><td>\(n\) constraints, arity \(n\)</td><td>in the domains (zero slots)</td></tr>
 <tr><td>No repeated neighbor</td><td>implied by 0/1</td><td>\(\sum_i \max(\mathit{deg}_i-1,0)\) strict orders, arity 2</td></tr>
 <tr><td>Undirected</td><td>\(n(n-1)/2\), arity 2</td><td>\(n(n-1)/2\), arity \(2D\) (<code>count</code>)</td></tr>
-<tr><td>Symmetry breaking</td><td>\(P\) lexicographic, arity \(2(n-2)\)</td><td>\(2P\) conditional lexicographic, arity \(2D\) (<code>dropLabel</code>)</td></tr>
-<tr><td>Connectivity</td><td>\(n-1\), arity \(n-1-i\) (OptRevLex)</td><td>\(n-1\), arity 1 (under revision)</td></tr>
+<tr><td>Symmetry breaking</td><td>\(P\) lexicographic, arity \(2(n-2)\)</td><td>\(2P\) conditional lexicographic on reversed rows, arity \(2D\) (<code>dropLabel</code>)</td></tr>
+<tr><td>Connectivity</td><td>\(n-1\), arity \(n-1-i\) (OptRevLex)</td><td>\(n-1\), arity 1</td></tr>
 </tbody></table></div>
 
 <h2 id="cmp-fam">4. Results by family</h2>
@@ -682,128 +734,155 @@ only compatible with OptRevLex, in Adj as well.</div>
 (<span style="color:var(--win);font-weight:600">green</span>, more than 15 %), below 1 Adj is
 faster (<span style="color:var(--lose);font-weight:600">red</span>), within 15 % a tie;
 <b>n.s.</b> = all runs under 0.2 s, too short to compare.</p>
-<div class="tw"><table><thead><tr><th rowspan='2'>Family</th><th colspan='3'>Time (s)</th><th colspan='2'>Ratio</th><th colspan='3'>Mean memory (MB)</th></tr><tr><th>OptLexAdj</th><th>OptRevLexAdj</th><th>Nei</th><th>OptLexAdj / Nei</th><th>OptRevLexAdj / Nei</th><th>OptLexAdj</th><th>OptRevLexAdj</th><th>Nei</th></tr></thead><tbody>
-<tr><td>1. Cubic graphs</td><td class='num'>75.47</td><td class='num'>32.57</td><td class='num'>40.28</td><td class='num win'>1.87×</td><td class='num lose'>0.81×</td><td class='num'>5.9</td><td class='num'>3.8</td><td class='num'>8.5</td></tr>
-<tr><td>2. Quartic graphs</td><td class='num'>30.71</td><td class='num'>19.44</td><td class='num'>52.56</td><td class='num lose'>0.58×</td><td class='num lose'>0.37×</td><td class='num'>5.2</td><td class='num'>4.5</td><td class='num'>8.5</td></tr>
-<tr><td>3. 2-regular graphs (unions of cycles)</td><td class='num'>0.58</td><td class='num'>0.46</td><td class='num'>0.82</td><td class='num lose'>0.71×</td><td class='num lose'>0.56×</td><td class='num'>3.6</td><td class='num'>3.2</td><td class='num'>5.7</td></tr>
-<tr><td>4. Dense complements</td><td class='num'>1.18</td><td class='num'>2.56</td><td class='num'>7.06</td><td class='num lose'>0.17×</td><td class='num lose'>0.36×</td><td class='num'>3.6</td><td class='num'>3.7</td><td class='num'>10.3</td></tr>
-<tr><td>5. Tree degree sequences</td><td class='num'>1.55</td><td class='num'>0.62</td><td class='num'>1.34</td><td class='num win'>1.16×</td><td class='num lose'>0.46×</td><td class='num'>5.8</td><td class='num'>4.9</td><td class='num'>5.2</td></tr>
-<tr><td>6. Bi-degree graphs</td><td class='num'>1.25</td><td class='num'>0.44</td><td class='num'>5.22</td><td class='num lose'>0.24×</td><td class='num lose'>0.08×</td><td class='num'>3.8</td><td class='num'>3.8</td><td class='num'>4.7</td></tr>
-<tr><td>7. Heterogeneous (hubs + leaves)</td><td class='num'>15.66</td><td class='num'>10.35</td><td class='num'>15.09</td><td class='num tie'>1.04×</td><td class='num lose'>0.69×</td><td class='num'>7.0</td><td class='num'>6.6</td><td class='num'>6.9</td></tr>
-<tr><td>8. Unigraphic (one graph)</td><td class='num'>0.00</td><td class='num'>0.00</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>2.1</td><td class='num'>5.0</td></tr>
-<tr><td><b>All families</b></td><td class='num'><b>126.40</b></td><td class='num'><b>66.44</b></td><td class='num'><b>122.42</b></td><td class='num tie'>1.03×</td><td class='num lose'>0.54×</td><td></td><td></td><td></td></tr>
-<tr><td>All families without N14_d3 and N12_d4</td><td class='num'>24.66</td><td class='num'>17.15</td><td class='num'>36.78</td><td class='num lose'>0.67×</td><td class='num lose'>0.47×</td><td></td><td></td><td></td></tr>
+<div class="tw"><table><thead><tr><th rowspan='2'>Family</th><th colspan='3'>Time (s)</th><th colspan='2'>Ratio</th><th colspan='3'>Mean memory (MB)</th></tr><tr><th>OptRevLexAdj</th><th>Nei</th><th>OptLexAdj</th><th>OptRevLexAdj / Nei</th><th>OptLexAdj / Nei</th><th>OptRevLexAdj</th><th>Nei</th><th>OptLexAdj</th></tr></thead><tbody>
+<tr><td>1. Cubic graphs</td><td class='num'>88.74</td><td class='num'>48.42</td><td class='num'>195.33</td><td class='num win'>1.83×</td><td class='num win'>4.03×</td><td class='num'>3.7</td><td class='num'>6.6</td><td class='num'>5.8</td></tr>
+<tr><td>2. Quartic graphs</td><td class='num'>30.28</td><td class='num'>149.72</td><td class='num'>47.31</td><td class='num lose'>0.20×</td><td class='num lose'>0.32×</td><td class='num'>4.4</td><td class='num'>7.6</td><td class='num'>5.3</td></tr>
+<tr><td>3. 2-regular graphs (unions of cycles)</td><td class='num'>0.65</td><td class='num'>0.32</td><td class='num'>0.72</td><td class='num win'>2.02×</td><td class='num win'>2.23×</td><td class='num'>3.2</td><td class='num'>5.6</td><td class='num'>3.6</td></tr>
+<tr><td>4. Dense complements</td><td class='num'>2.66</td><td class='num'>86.96</td><td class='num'>1.39</td><td class='num lose'>0.03×</td><td class='num lose'>0.02×</td><td class='num'>3.7</td><td class='num'>10.1</td><td class='num'>3.6</td></tr>
+<tr><td>5. Tree degree sequences</td><td class='num'>0.68</td><td class='num'>0.46</td><td class='num'>1.61</td><td class='num win'>1.47×</td><td class='num win'>3.50×</td><td class='num'>5.2</td><td class='num'>4.3</td><td class='num'>5.8</td></tr>
+<tr><td>6. Bi-degree graphs</td><td class='num'>0.52</td><td class='num'>2.00</td><td class='num'>1.55</td><td class='num lose'>0.26×</td><td class='num lose'>0.78×</td><td class='num'>3.7</td><td class='num'>4.1</td><td class='num'>4.0</td></tr>
+<tr><td>7. Heterogeneous (hubs + leaves)</td><td class='num'>12.86</td><td class='num'>10.11</td><td class='num'>20.97</td><td class='num win'>1.27×</td><td class='num win'>2.07×</td><td class='num'>6.8</td><td class='num'>6.2</td><td class='num'>7.2</td></tr>
+<tr><td>8. Unigraphic (one graph)</td><td class='num'>0.02</td><td class='num'>0.06</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num tie'>n.s.</td><td class='num'>2.1</td><td class='num'>4.4</td><td class='num'>2.1</td></tr>
+<tr><td><b>All families</b></td><td class='num'><b>136.41</b></td><td class='num'><b>298.05</b></td><td class='num'><b>268.91</b></td><td class='num lose'>0.46×</td><td class='num tie'>0.90×</td><td></td><td></td><td></td></tr>
 </tbody></table></div>
-<div class="callout"><b>One instance decides the total.</b> N14_d3 takes 74.00 s with OptLexAdj
-and 38.51 s with Nei. Without N14_d3 and N12_d4, OptLexAdj is 1.49× faster than Nei
-(24.66 s against 36.78 s).</div>
+<div class="callout"><b>Two families decide the total.</b> Quartic graphs (149.72 s against
+30.28 s) and dense complements (86.96 s against 2.66 s) account for 237 s of the 298 s of Nei.
+On the other families Nei is faster than OptRevLexAdj, except on the bi-degree graphs (0.26×) and the unigraphic sequences (too short to compare).</div>
 
 <h2 id="cmp-detail">5. Results by instance</h2>
-<p>OptLexAdj and Nei have the same solution count in every row (a <span class="bad">≠</span>
-would mark a difference). Times in seconds, memory = solver peak memory.</p>
-<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th rowspan='2' class='num'>n</th><th rowspan='2' class='num'>D</th><th colspan='4'>Same solutions: OptLexAdj and Nei</th><th colspan='3'>OptRevLexAdj</th><th rowspan='2'>Memory (MB)<br>LexAdj / RevLexAdj / Nei</th></tr><tr><th>solutions</th><th>OptLexAdj (s)</th><th>Nei (s)</th><th>LexAdj / Nei</th><th>solutions</th><th>time (s)</th><th>RevLexAdj / Nei</th></tr></thead><tbody>
+<p>OptRevLexAdj and Nei have the same solution count in every row. Times in seconds, memory =
+solver peak memory.</p>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th rowspan='2' class='num'>n</th><th rowspan='2' class='num'>D</th><th colspan='4'>Same solutions: OptRevLexAdj and Nei</th><th colspan='3'>OptLexAdj</th><th rowspan='2'>Memory (MB)<br>RevLexAdj / Nei / LexAdj</th></tr><tr><th>solutions</th><th>OptRevLexAdj (s)</th><th>Nei (s)</th><th>RevLexAdj / Nei</th><th>solutions</th><th>time (s)</th><th>LexAdj / Nei</th></tr></thead><tbody>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>Paw (sample)</td></tr>
-<tr><td><code>N4_1223</code></td><td class='num'>4</td><td class='num'>3</td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.6 / 1.6 / 1.8</td></tr>
+<tr><td><code>N4_1223</code></td><td class='num'>4</td><td class='num'>3</td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.6 / 1.8 / 1.6</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>warm-up</td></tr>
-<tr><td><code>N6_d3</code></td><td class='num'>6</td><td class='num'>3</td><td class='num'>2</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.8 / 1.8 / 2.7</td></tr>
+<tr><td><code>N6_d3</code></td><td class='num'>6</td><td class='num'>3</td><td class='num'>2</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.8 / 2.8 / 1.8</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>1. Cubic graphs</td></tr>
-<tr><td><code>N8_d3</code></td><td class='num'>8</td><td class='num'>3</td><td class='num'>13</td><td class='num'>0.03</td><td class='num'>0.04</td><td class='num tie'>n.s.</td><td class='num'>15</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 2.1 / 3.8</td></tr>
-<tr><td><code>N10_d3</code></td><td class='num'>10</td><td class='num'>3</td><td class='num'>192</td><td class='num'>0.12</td><td class='num'>0.11</td><td class='num tie'>n.s.</td><td class='num'>133</td><td class='num'>0.08</td><td class='num tie'>n.s.</td><td class='num'>3.2 / 3.5 / 5.4</td></tr>
-<tr><td><code>N12_d3</code></td><td class='num'>12</td><td class='num'>3</td><td class='num'>4,984</td><td class='num'>1.32</td><td class='num'>1.62</td><td class='num lose'>0.81×</td><td class='num'>1,462</td><td class='num'>1.09</td><td class='num lose'>0.67×</td><td class='num'>4.9 / 3.7 / 7.6</td></tr>
-<tr><td><code>N14_d3</code></td><td class='num'>14</td><td class='num'>3</td><td class='num'>172,753</td><td class='num'>74.00</td><td class='num'>38.51</td><td class='num win'>1.92×</td><td class='num'>18,345</td><td class='num'>31.39</td><td class='num lose'>0.82×</td><td class='num'>13.4 / 6.0 / 17.2</td></tr>
+<tr><td><code>N8_d3</code></td><td class='num'>8</td><td class='num'>3</td><td class='num'>15</td><td class='num'>0.06</td><td class='num'>0.06</td><td class='num tie'>n.s.</td><td class='num'>13</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 3.8 / 2.1</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>10</td><td class='num'>3</td><td class='num'>133</td><td class='num'>0.12</td><td class='num'>0.42</td><td class='num lose'>0.29×</td><td class='num'>192</td><td class='num'>0.25</td><td class='num lose'>0.60×</td><td class='num'>3.2 / 5.3 / 3.2</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>12</td><td class='num'>3</td><td class='num'>1,462</td><td class='num'>4.08</td><td class='num'>5.12</td><td class='num lose'>0.80×</td><td class='num'>4,984</td><td class='num'>4.01</td><td class='num lose'>0.78×</td><td class='num'>3.7 / 6.9 / 4.9</td></tr>
+<tr><td><code>N14_d3</code></td><td class='num'>14</td><td class='num'>3</td><td class='num'>18,345</td><td class='num'>84.48</td><td class='num'>42.81</td><td class='num win'>1.97×</td><td class='num'>172,753</td><td class='num'>191.05</td><td class='num win'>4.46×</td><td class='num'>5.9 / 10.3 / 13.1</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>2. Quartic graphs</td></tr>
-<tr><td><code>N9_d4</code></td><td class='num'>9</td><td class='num'>4</td><td class='num'>81</td><td class='num'>0.02</td><td class='num'>0.09</td><td class='num tie'>n.s.</td><td class='num'>81</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.9 / 2.8 / 5.3</td></tr>
-<tr><td><code>N10_d4</code></td><td class='num'>10</td><td class='num'>4</td><td class='num'>750</td><td class='num'>0.15</td><td class='num'>0.57</td><td class='num lose'>0.26×</td><td class='num'>614</td><td class='num'>0.14</td><td class='num lose'>0.25×</td><td class='num'>3.8 / 3.7 / 7.1</td></tr>
-<tr><td><code>N11_d4</code></td><td class='num'>11</td><td class='num'>4</td><td class='num'>7,982</td><td class='num'>2.80</td><td class='num'>4.77</td><td class='num lose'>0.59×</td><td class='num'>5,111</td><td class='num'>1.38</td><td class='num lose'>0.29×</td><td class='num'>4.7 / 4.4 / 8.2</td></tr>
-<tr><td><code>N12_d4</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>98,223</td><td class='num'>27.74</td><td class='num'>47.13</td><td class='num lose'>0.59×</td><td class='num'>45,729</td><td class='num'>17.90</td><td class='num lose'>0.38×</td><td class='num'>9.3 / 7.2 / 13.3</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>9</td><td class='num'>4</td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>0.25</td><td class='num lose'>0.12×</td><td class='num'>81</td><td class='num'>0.02</td><td class='num lose'>0.07×</td><td class='num'>2.7 / 5.1 / 2.9</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>10</td><td class='num'>4</td><td class='num'>614</td><td class='num'>0.19</td><td class='num'>2.11</td><td class='num lose'>0.09×</td><td class='num'>750</td><td class='num'>0.20</td><td class='num lose'>0.10×</td><td class='num'>3.7 / 6.5 / 4.0</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>11</td><td class='num'>4</td><td class='num'>5,111</td><td class='num'>2.00</td><td class='num'>17.46</td><td class='num lose'>0.11×</td><td class='num'>7,982</td><td class='num'>3.97</td><td class='num lose'>0.23×</td><td class='num'>4.4 / 7.9 / 4.8</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>45,729</td><td class='num'>28.06</td><td class='num'>129.90</td><td class='num lose'>0.22×</td><td class='num'>98,223</td><td class='num'>43.12</td><td class='num lose'>0.33×</td><td class='num'>6.9 / 10.8 / 9.4</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>3. 2-regular graphs (unions of cycles)</td></tr>
-<tr><td><code>N10_d2</code></td><td class='num'>10</td><td class='num'>2</td><td class='num'>16</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>9</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.5 / 2.5 / 4.1</td></tr>
-<tr><td><code>N12_d2</code></td><td class='num'>12</td><td class='num'>2</td><td class='num'>60</td><td class='num'>0.03</td><td class='num'>0.07</td><td class='num tie'>n.s.</td><td class='num'>19</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>3.2 / 3.0 / 5.2</td></tr>
-<tr><td><code>N15_d2</code></td><td class='num'>15</td><td class='num'>2</td><td class='num'>543</td><td class='num'>0.54</td><td class='num'>0.73</td><td class='num lose'>0.74×</td><td class='num'>60</td><td class='num'>0.42</td><td class='num lose'>0.58×</td><td class='num'>5.0 / 4.1 / 7.7</td></tr>
+<tr><td><code>N10_d2</code></td><td class='num'>10</td><td class='num'>2</td><td class='num'>9</td><td class='num'>0.03</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>16</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.5 / 4.1 / 2.5</td></tr>
+<tr><td><code>N12_d2</code></td><td class='num'>12</td><td class='num'>2</td><td class='num'>19</td><td class='num'>0.04</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num'>60</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>3.0 / 5.2 / 3.2</td></tr>
+<tr><td><code>N15_d2</code></td><td class='num'>15</td><td class='num'>2</td><td class='num'>60</td><td class='num'>0.58</td><td class='num'>0.25</td><td class='num win'>2.33×</td><td class='num'>543</td><td class='num'>0.68</td><td class='num win'>2.71×</td><td class='num'>4.1 / 7.4 / 5.0</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>4. Dense complements</td></tr>
-<tr><td><code>N10_d6</code></td><td class='num'>10</td><td class='num'>6</td><td class='num'>133</td><td class='num'>0.07</td><td class='num'>0.38</td><td class='num lose'>0.18×</td><td class='num'>192</td><td class='num'>0.07</td><td class='num lose'>0.18×</td><td class='num'>2.9 / 3.4 / 8.2</td></tr>
-<tr><td><code>N10_d5</code></td><td class='num'>10</td><td class='num'>5</td><td class='num'>614</td><td class='num'>0.19</td><td class='num'>0.40</td><td class='num lose'>0.47×</td><td class='num'>750</td><td class='num'>0.24</td><td class='num lose'>0.60×</td><td class='num'>3.9 / 3.4 / 7.9</td></tr>
-<tr><td><code>N12_d8</code></td><td class='num'>12</td><td class='num'>8</td><td class='num'>1,462</td><td class='num'>0.92</td><td class='num'>6.28</td><td class='num lose'>0.15×</td><td class='num'>4,984</td><td class='num'>2.25</td><td class='num lose'>0.36×</td><td class='num'>4.1 / 4.4 / 14.7</td></tr>
+<tr><td><code>N10_d6</code></td><td class='num'>10</td><td class='num'>6</td><td class='num'>192</td><td class='num'>0.05</td><td class='num'>1.11</td><td class='num lose'>0.05×</td><td class='num'>133</td><td class='num'>0.06</td><td class='num lose'>0.06×</td><td class='num'>3.3 / 8.2 / 3.0</td></tr>
+<tr><td><code>N10_d5</code></td><td class='num'>10</td><td class='num'>5</td><td class='num'>750</td><td class='num'>0.22</td><td class='num'>3.77</td><td class='num lose'>0.06×</td><td class='num'>614</td><td class='num'>0.16</td><td class='num lose'>0.04×</td><td class='num'>3.4 / 7.5 / 3.8</td></tr>
+<tr><td><code>N12_d8</code></td><td class='num'>12</td><td class='num'>8</td><td class='num'>4,984</td><td class='num'>2.38</td><td class='num'>82.08</td><td class='num lose'>0.03×</td><td class='num'>1,462</td><td class='num'>1.17</td><td class='num lose'>0.01×</td><td class='num'>4.4 / 14.5 / 4.0</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>5. Tree degree sequences</td></tr>
-<tr><td><code>N12_111111222334</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>585</td><td class='num'>0.16</td><td class='num'>0.12</td><td class='num tie'>n.s.</td><td class='num'>369</td><td class='num'>0.11</td><td class='num tie'>n.s.</td><td class='num'>5.2 / 4.6 / 4.6</td></tr>
-<tr><td><code>N14_11111112223334</code></td><td class='num'>14</td><td class='num'>4</td><td class='num'>5,939</td><td class='num'>1.39</td><td class='num'>1.22</td><td class='num tie'>1.14×</td><td class='num'>2,209</td><td class='num'>0.51</td><td class='num lose'>0.42×</td><td class='num'>6.4 / 5.2 / 5.7</td></tr>
+<tr><td><code>N12_111111222334</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>369</td><td class='num'>0.08</td><td class='num'>0.05</td><td class='num tie'>n.s.</td><td class='num'>585</td><td class='num'>0.12</td><td class='num tie'>n.s.</td><td class='num'>4.7 / 4.0 / 5.2</td></tr>
+<tr><td><code>N14_11111112223334</code></td><td class='num'>14</td><td class='num'>4</td><td class='num'>2,209</td><td class='num'>0.60</td><td class='num'>0.41</td><td class='num win'>1.47×</td><td class='num'>5,939</td><td class='num'>1.49</td><td class='num win'>3.65×</td><td class='num'>5.8 / 4.6 / 6.5</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>6. Bi-degree graphs</td></tr>
-<tr><td><code>N10_2222223333</code></td><td class='num'>10</td><td class='num'>3</td><td class='num'>392</td><td class='num'>0.06</td><td class='num'>0.16</td><td class='num tie'>n.s.</td><td class='num'>228</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>3.4 / 3.9 / 3.9</td></tr>
-<tr><td><code>N12_222222224444</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>4,702</td><td class='num'>1.19</td><td class='num'>5.06</td><td class='num lose'>0.24×</td><td class='num'>1,303</td><td class='num'>0.41</td><td class='num lose'>0.08×</td><td class='num'>4.3 / 3.6 / 5.5</td></tr>
+<tr><td><code>N10_2222223333</code></td><td class='num'>10</td><td class='num'>3</td><td class='num'>228</td><td class='num'>0.04</td><td class='num'>0.14</td><td class='num tie'>n.s.</td><td class='num'>392</td><td class='num'>0.07</td><td class='num tie'>n.s.</td><td class='num'>3.8 / 3.7 / 3.6</td></tr>
+<tr><td><code>N12_222222224444</code></td><td class='num'>12</td><td class='num'>4</td><td class='num'>1,303</td><td class='num'>0.48</td><td class='num'>1.87</td><td class='num lose'>0.26×</td><td class='num'>4,702</td><td class='num'>1.48</td><td class='num lose'>0.79×</td><td class='num'>3.7 / 4.6 / 4.4</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>7. Heterogeneous (hubs + leaves)</td></tr>
-<tr><td><code>N11_11222333445</code></td><td class='num'>11</td><td class='num'>5</td><td class='num'>38,210</td><td class='num'>5.47</td><td class='num'>6.45</td><td class='num lose'>0.85×</td><td class='num'>28,668</td><td class='num'>4.13</td><td class='num lose'>0.64×</td><td class='num'>7.1 / 6.4 / 6.1</td></tr>
-<tr><td><code>N13_1111222233336</code></td><td class='num'>13</td><td class='num'>6</td><td class='num'>17,259</td><td class='num'>3.77</td><td class='num'>4.18</td><td class='num tie'>0.90×</td><td class='num'>8,530</td><td class='num'>1.61</td><td class='num lose'>0.39×</td><td class='num'>6.6 / 5.8 / 6.6</td></tr>
-<tr><td><code>N14_11111122233457</code></td><td class='num'>14</td><td class='num'>7</td><td class='num'>27,642</td><td class='num'>6.42</td><td class='num'>4.46</td><td class='num win'>1.44×</td><td class='num'>23,272</td><td class='num'>4.61</td><td class='num tie'>1.03×</td><td class='num'>7.2 / 7.7 / 7.9</td></tr>
+<tr><td><code>N11_11222333445</code></td><td class='num'>11</td><td class='num'>5</td><td class='num'>28,668</td><td class='num'>4.95</td><td class='num'>4.82</td><td class='num tie'>1.03×</td><td class='num'>38,210</td><td class='num'>6.87</td><td class='num win'>1.43×</td><td class='num'>6.6 / 5.8 / 7.1</td></tr>
+<tr><td><code>N13_1111222233336</code></td><td class='num'>13</td><td class='num'>6</td><td class='num'>8,530</td><td class='num'>2.12</td><td class='num'>1.59</td><td class='num win'>1.34×</td><td class='num'>17,259</td><td class='num'>4.55</td><td class='num win'>2.87×</td><td class='num'>5.6 / 5.6 / 6.6</td></tr>
+<tr><td><code>N14_11111122233457</code></td><td class='num'>14</td><td class='num'>7</td><td class='num'>23,272</td><td class='num'>5.79</td><td class='num'>3.70</td><td class='num win'>1.56×</td><td class='num'>27,642</td><td class='num'>9.54</td><td class='num win'>2.58×</td><td class='num'>8.1 / 7.1 / 7.9</td></tr>
 <tr><td colspan='11' style='background:var(--soft);font-weight:600'>8. Unigraphic (one graph)</td></tr>
-<tr><td><code>N12_1.1.1.1.1.1.1.1.1.1.1.11</code></td><td class='num'>12</td><td class='num'>11</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 2.1 / 5.2</td></tr>
-<tr><td><code>N10_1234556789</code></td><td class='num'>10</td><td class='num'>9</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1.9 / 1.9 / 2.2</td></tr>
-<tr><td><code>N14_1.2.3.4.5.6.7.7.8.9.10.11.12.13</code></td><td class='num'>14</td><td class='num'>13</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 2.1 / 2.9</td></tr>
-<tr><td><code>N10_d8</code></td><td class='num'>10</td><td class='num'>8</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>2.5 / 2.5 / 9.8</td></tr>
+<tr><td><code>N12_1.1.1.1.1.1.1.1.1.1.1.11</code></td><td class='num'>12</td><td class='num'>11</td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 2.8 / 2.1</td></tr>
+<tr><td><code>N10_1234556789</code></td><td class='num'>10</td><td class='num'>9</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.00</td><td class='num tie'>n.s.</td><td class='num'>1.9 / 2.2 / 1.9</td></tr>
+<tr><td><code>N14_1.2.3.4.5.6.7.7.8.9.10.11.12.13</code></td><td class='num'>14</td><td class='num'>13</td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 2.9 / 2.1</td></tr>
+<tr><td><code>N10_d8</code></td><td class='num'>10</td><td class='num'>8</td><td class='num'>1</td><td class='num'>0.00</td><td class='num'>0.03</td><td class='num tie'>n.s.</td><td class='num'>1</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.5 / 9.8 / 2.5</td></tr>
 </tbody></table></div>
 
-<h2 id="cmp-dens">6. Density</h2>
-<p>Instances taking at least 0.2 s, sorted by density \(\bar d / (n-1)\).</p>
-<div class="tw"><table><thead><tr><th>Sequence</th><th>Family</th><th class='num'>density</th><th class='num'>Adj vars \(n^2\)</th><th class='num'>Nei vars \(nD\)</th><th>OptLexAdj / Nei</th><th>OptRevLexAdj / Nei</th><th>Fastest</th></tr></thead><tbody>
-<tr><td><code>N14_11111112223334</code></td><td>Tree degree sequences</td><td class='num'>0.14</td><td class='num'>196</td><td class='num'>56</td><td class='num tie'>1.14×</td><td class='num lose'>0.42×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N15_d2</code></td><td>2-regular graphs (unions of cycles)</td><td class='num'>0.14</td><td class='num'>225</td><td class='num'>30</td><td class='num lose'>0.74×</td><td class='num lose'>0.58×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N14_11111122233457</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.19</td><td class='num'>196</td><td class='num'>98</td><td class='num win'>1.44×</td><td class='num tie'>1.03×</td><td>Nei</td></tr>
-<tr><td><code>N13_1111222233336</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.19</td><td class='num'>169</td><td class='num'>78</td><td class='num tie'>0.90×</td><td class='num lose'>0.39×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N14_d3</code></td><td>Cubic graphs</td><td class='num'>0.23</td><td class='num'>196</td><td class='num'>42</td><td class='num win'>1.92×</td><td class='num lose'>0.82×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N12_222222224444</code></td><td>Bi-degree graphs</td><td class='num'>0.24</td><td class='num'>144</td><td class='num'>48</td><td class='num lose'>0.24×</td><td class='num lose'>0.08×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N11_11222333445</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.27</td><td class='num'>121</td><td class='num'>55</td><td class='num lose'>0.85×</td><td class='num lose'>0.64×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N12_d3</code></td><td>Cubic graphs</td><td class='num'>0.27</td><td class='num'>144</td><td class='num'>36</td><td class='num lose'>0.81×</td><td class='num lose'>0.67×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N12_d4</code></td><td>Quartic graphs</td><td class='num'>0.36</td><td class='num'>144</td><td class='num'>48</td><td class='num lose'>0.59×</td><td class='num lose'>0.38×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N11_d4</code></td><td>Quartic graphs</td><td class='num'>0.40</td><td class='num'>121</td><td class='num'>44</td><td class='num lose'>0.59×</td><td class='num lose'>0.29×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N10_d4</code></td><td>Quartic graphs</td><td class='num'>0.44</td><td class='num'>100</td><td class='num'>40</td><td class='num lose'>0.26×</td><td class='num lose'>0.25×</td><td>OptRevLexAdj</td></tr>
-<tr><td><code>N10_d5</code></td><td>Dense complements</td><td class='num'>0.56</td><td class='num'>100</td><td class='num'>50</td><td class='num lose'>0.47×</td><td class='num lose'>0.60×</td><td>OptLexAdj</td></tr>
-<tr><td><code>N10_d6</code></td><td>Dense complements</td><td class='num'>0.67</td><td class='num'>100</td><td class='num'>60</td><td class='num lose'>0.18×</td><td class='num lose'>0.18×</td><td>OptLexAdj</td></tr>
-<tr><td><code>N12_d8</code></td><td>Dense complements</td><td class='num'>0.73</td><td class='num'>144</td><td class='num'>96</td><td class='num lose'>0.15×</td><td class='num lose'>0.36×</td><td>OptLexAdj</td></tr>
+<h2 id="cmp-con">6. Connectivity (regular sequences)</h2>
+<p>OptRevLexAdj with the upper off-diagonal against Nei with the largest neighbor above \(i\)
+(Nei tab, section 5). Same connected counts on every row.</p>
+<div class="tw"><table><thead><tr><th rowspan='2'>Sequence</th><th rowspan='2'>connected graphs<br>(both models)</th><th colspan='2'>Time (s)</th><th rowspan='2'>RevLexAdj / Nei</th><th rowspan='2'>Memory (MB)<br>RevLexAdj / Nei</th></tr><tr><th>OptRevLexAdjCon</th><th>NeiCon</th></tr></thead><tbody>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>warm-up</td></tr>
+<tr><td><code>N6_d3</code></td><td class='num'>2</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>1.8 / 2.7</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>1. Cubic graphs</td></tr>
+<tr><td><code>N8_d3</code></td><td class='num'>14</td><td class='num'>0.01</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>2.1 / 3.8</td></tr>
+<tr><td><code>N10_d3</code></td><td class='num'>129</td><td class='num'>0.06</td><td class='num'>0.10</td><td class='num tie'>n.s.</td><td class='num'>3.2 / 5.6</td></tr>
+<tr><td><code>N12_d3</code></td><td class='num'>1,429</td><td class='num'>0.98</td><td class='num'>0.88</td><td class='num tie'>1.12×</td><td class='num'>4.2 / 7.5</td></tr>
+<tr><td><code>N14_d3</code></td><td class='num'>18,025</td><td class='num'>52.20</td><td class='num'>12.62</td><td class='num win'>4.14×</td><td class='num'>5.8 / 10.3</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>2. Quartic graphs</td></tr>
+<tr><td><code>N9_d4</code></td><td class='num'>81</td><td class='num'>0.03</td><td class='num'>0.19</td><td class='num tie'>n.s.</td><td class='num'>2.8 / 5.3</td></tr>
+<tr><td><code>N10_d4</code></td><td class='num'>613</td><td class='num'>0.15</td><td class='num'>1.42</td><td class='num lose'>0.11×</td><td class='num'>3.8 / 6.5</td></tr>
+<tr><td><code>N11_d4</code></td><td class='num'>5,109</td><td class='num'>2.36</td><td class='num'>10.44</td><td class='num lose'>0.23×</td><td class='num'>5.3 / 8.2</td></tr>
+<tr><td><code>N12_d4</code></td><td class='num'>45,722</td><td class='num'>25.83</td><td class='num'>86.14</td><td class='num lose'>0.30×</td><td class='num'>7.5 / 11.4</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>3. 2-regular graphs (unions of cycles)</td></tr>
+<tr><td><code>N10_d2</code></td><td class='num'>1</td><td class='num'>0.01</td><td class='num'>0.02</td><td class='num tie'>n.s.</td><td class='num'>2.6 / 4.0</td></tr>
+<tr><td><code>N12_d2</code></td><td class='num'>1</td><td class='num'>0.02</td><td class='num'>0.01</td><td class='num tie'>n.s.</td><td class='num'>3.0 / 4.9</td></tr>
+<tr><td><code>N15_d2</code></td><td class='num'>1</td><td class='num'>0.56</td><td class='num'>0.02</td><td class='num win'>25.36×</td><td class='num'>4.2 / 7.1</td></tr>
+<tr><td colspan='6' style='background:var(--soft);font-weight:600'>4. Dense complements</td></tr>
+<tr><td><code>N10_d6</code></td><td class='num'>192</td><td class='num'>0.05</td><td class='num'>1.50</td><td class='num lose'>0.03×</td><td class='num'>3.3 / 8.3</td></tr>
+<tr><td><code>N10_d5</code></td><td class='num'>750</td><td class='num'>0.24</td><td class='num'>3.73</td><td class='num lose'>0.06×</td><td class='num'>3.6 / 7.5</td></tr>
+<tr><td><code>N12_d8</code></td><td class='num'>4,984</td><td class='num'>2.49</td><td class='num'>89.15</td><td class='num lose'>0.03×</td><td class='num'>4.5 / 14.5</td></tr>
+<tr><td><b>Total (families 1-4)</b></td><td></td><td class='num'><b>84.98</b></td><td class='num'><b>206.24</b></td><td class='num lose'>0.41×</td><td></td></tr>
 </tbody></table></div>
-<p>Against OptLexAdj (same solutions), Nei is ahead only on the sparsest large instances (N14_d3,
-N14_11111122233457) and falls further behind as the density grows: 0.17× on the dense
-complements. OptRevLexAdj is the fastest model on 10 of these 14 instances, OptLexAdj on the 3
-dense complements, Nei on one.</p>
 
-<h2 id="cmp-ok">7. Correctness</h2>
+<h2 id="cmp-dens">7. Density</h2>
+<p>Instances taking at least 0.2 s with one of the models, sorted by density \(\bar d / (n-1)\).</p>
+<div class="tw"><table><thead><tr><th>Sequence</th><th>Family</th><th class='num'>density</th><th class='num'>Adj vars \(n^2\)</th><th class='num'>Nei vars \(nD\)</th><th>OptRevLexAdj / Nei</th><th>OptLexAdj / Nei</th><th>Fastest</th></tr></thead><tbody>
+<tr><td><code>N15_d2</code></td><td>2-regular graphs (unions of cycles)</td><td class='num'>0.14</td><td class='num'>225</td><td class='num'>30</td><td class='num win'>2.33×</td><td class='num win'>2.71×</td><td>Nei</td></tr>
+<tr><td><code>N14_11111112223334</code></td><td>Tree degree sequences</td><td class='num'>0.14</td><td class='num'>196</td><td class='num'>56</td><td class='num win'>1.47×</td><td class='num win'>3.65×</td><td>Nei</td></tr>
+<tr><td><code>N14_11111122233457</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.19</td><td class='num'>196</td><td class='num'>98</td><td class='num win'>1.56×</td><td class='num win'>2.58×</td><td>Nei</td></tr>
+<tr><td><code>N13_1111222233336</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.19</td><td class='num'>169</td><td class='num'>78</td><td class='num win'>1.34×</td><td class='num win'>2.87×</td><td>Nei</td></tr>
+<tr><td><code>N14_d3</code></td><td>Cubic graphs</td><td class='num'>0.23</td><td class='num'>196</td><td class='num'>42</td><td class='num win'>1.97×</td><td class='num win'>4.46×</td><td>Nei</td></tr>
+<tr><td><code>N12_222222224444</code></td><td>Bi-degree graphs</td><td class='num'>0.24</td><td class='num'>144</td><td class='num'>48</td><td class='num lose'>0.26×</td><td class='num lose'>0.79×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N12_d3</code></td><td>Cubic graphs</td><td class='num'>0.27</td><td class='num'>144</td><td class='num'>36</td><td class='num lose'>0.80×</td><td class='num lose'>0.78×</td><td>OptLexAdj</td></tr>
+<tr><td><code>N11_11222333445</code></td><td>Heterogeneous (hubs + leaves)</td><td class='num'>0.27</td><td class='num'>121</td><td class='num'>55</td><td class='num tie'>1.03×</td><td class='num win'>1.43×</td><td>Nei</td></tr>
+<tr><td><code>N10_d3</code></td><td>Cubic graphs</td><td class='num'>0.33</td><td class='num'>100</td><td class='num'>30</td><td class='num lose'>0.29×</td><td class='num lose'>0.60×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N12_d4</code></td><td>Quartic graphs</td><td class='num'>0.36</td><td class='num'>144</td><td class='num'>48</td><td class='num lose'>0.22×</td><td class='num lose'>0.33×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N11_d4</code></td><td>Quartic graphs</td><td class='num'>0.40</td><td class='num'>121</td><td class='num'>44</td><td class='num lose'>0.11×</td><td class='num lose'>0.23×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N10_d4</code></td><td>Quartic graphs</td><td class='num'>0.44</td><td class='num'>100</td><td class='num'>40</td><td class='num lose'>0.09×</td><td class='num lose'>0.10×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N9_d4</code></td><td>Quartic graphs</td><td class='num'>0.50</td><td class='num'>81</td><td class='num'>36</td><td class='num lose'>0.12×</td><td class='num lose'>0.07×</td><td>OptLexAdj</td></tr>
+<tr><td><code>N10_d5</code></td><td>Dense complements</td><td class='num'>0.56</td><td class='num'>100</td><td class='num'>50</td><td class='num lose'>0.06×</td><td class='num lose'>0.04×</td><td>OptLexAdj</td></tr>
+<tr><td><code>N10_d6</code></td><td>Dense complements</td><td class='num'>0.67</td><td class='num'>100</td><td class='num'>60</td><td class='num lose'>0.05×</td><td class='num lose'>0.06×</td><td>OptRevLexAdj</td></tr>
+<tr><td><code>N12_d8</code></td><td>Dense complements</td><td class='num'>0.73</td><td class='num'>144</td><td class='num'>96</td><td class='num lose'>0.03×</td><td class='num lose'>0.01×</td><td>OptLexAdj</td></tr>
+</tbody></table></div>
+<p>Nei is the fastest model on the five sparsest instances (density ≤ 0.23, up to 1.97× faster
+than OptRevLexAdj on N14_d3) and falls far behind as the density grows: 0.09× to 0.22× on the
+quartic graphs, 0.03× to 0.06× on the dense complements.</p>
+
+<h2 id="cmp-ok">8. Correctness</h2>
 <ul>
-  <li><b>Same solutions as OptLexAdj</b> on all 27 rows, as section 2 predicts.</li>
-  <li><b>Sound.</b> Checked by brute force on all 144 graphic sequences with \(n \le 6\) against
-  the isomorphism classes: no graph is lost. The order is partial, so a graph can be counted
-  several times (e.g. 172,753 solutions for N14_d3).</li>
+  <li><b>Same solutions as OptRevLexAdj</b> on all 27 rows, and the same connected counts on the 15
+  regular rows, as section 2 predicts.</li>
+  <li><b>Sound.</b> Checked by brute force on all 278 graphic sequences with \(n \le 6\) (sorted
+  increasingly and decreasingly) against the isomorphism classes: no graph is lost, and the counts
+  equal those of <code>optRevLexAdj</code> on every sequence. With connectivity, Nei and Adj lose
+  connected graphs on the same 7 non-regular sequences of the 96 that have one, and on no regular
+  sequence.</li>
   <li><b>Complement duality (Adj).</b> OptLexAdj on a dense complement gives exactly the
   OptRevLexAdj count of the sparse sequence, and the reverse (133 / 192 for N10_d6 and N10_d3,
   614 / 750 for N10_d5 and N10_d4, 1,462 / 4,984 for N12_d8 and N12_d3).</li>
 </ul>
 
-<h2 id="cmp-concl">8. Conclusions</h2>
+<h2 id="cmp-concl">9. Conclusions</h2>
 <ol>
-  <li><b>Nei now reproduces OptLexAdj.</b> Its row order is the OptLex order of Adj written on the
-  neighbor lists (section 2): same solutions on every instance.</li>
-  <li><b>Same solutions, Nei against OptLexAdj: no gain overall.</b> 122.42 s against 126.40 s in
-  total (1.03×), only thanks to N14_d3 (38.51 s against 74.00 s, 1.92×). Without N14_d3 and
-  N12_d4, OptLexAdj is 1.49× faster, and it is faster on 10 of the 14 instances above 0.2 s.</li>
-  <li><b>Where Nei loses most:</b> dense complements (0.17×; N12_d8 6.28 s against 0.92 s),
-  bi-degree graphs (0.24×; N12_222222224444 5.06 s against 1.19 s) and quartic graphs (0.58×;
-  N12_d4 47.13 s against 27.74 s).</li>
-  <li><b>Where Nei wins:</b> the largest sparse instances: cubic graphs 1.87× (N14_d3), and
-  N14_11111122233457 (4.46 s against 6.42 s), where Nei is the fastest of the three models. Tree
-  sequences 1.16×, heterogeneous 1.04×, 2-regular 0.71×.</li>
-  <li><b>OptRevLexAdj is the fastest model.</b> 66.44 s in total, against 122.42 s for Nei and
-  126.40 s for OptLexAdj; it keeps far fewer solutions on sparse graphs (18,345 against 172,753 for
-  N14_d3) and is the fastest on 10 of the 14 instances above 0.2 s.</li>
-  <li><b>Compared with the previous Nei order.</b> In the run of commit <code>89a32b6</code>, Nei
-  posted the OptRevLex order of Adj on its rows and took 41.49 s in total (7.70 s on N14_d3),
-  faster than OptRevLexAdj (69.80 s in that run, 66.44 s in this one). With the current order it
-  takes 122.42 s (38.51 s on N14_d3): it keeps the OptLex solutions, which are more numerous on
-  sparse graphs.</li>
-  <li><b>Memory.</b> Nei uses the most memory: 14.7 MB against 4.1 MB (OptLexAdj) on N12_d8,
-  9.8 MB against 2.5 MB for the single graph N10_d8, 17.2 MB against 13.4 MB on N14_d3.</li>
+  <li><b>Nei now reproduces OptRevLexAdj</b>, with and without connectivity (section 2): the
+  comparison is between two encodings of the same search space.</li>
+  <li><b>Sparse graphs: Nei is faster.</b> Cubic 1.83× (N14_d3: 42.81 s against 84.48 s),
+  2-regular 2.02×, trees 1.47×, heterogeneous 1.27×; Nei is the fastest of the three models on
+  the five sparsest instances.</li>
+  <li><b>Denser graphs: Nei is much slower.</b> Quartic 0.20× (N12_d4: 129.90 s against 28.06 s),
+  dense complements 0.03× (N12_d8: 82.08 s against 2.38 s), bi-degree 0.26×. Overall Nei takes
+  298.05 s against 136.41 s (0.46×).</li>
+  <li><b>Connectivity:</b> same picture, 206.24 s against 84.98 s on families 1-4, with Nei 4.14×
+  faster on N14_d3 and 0.03× on N12_d8.</li>
+  <li><b>Compared with an earlier encoding of the same order.</b> In the run of commit
+  <code>89a32b6</code>, Nei posted the OptRevLex order of Adj in another form and took 41.49 s in
+  total, against 66.44 s for OptRevLexAdj in that run. Here it takes 298.05 s against 136.41 s.
+  Even allowing for the loaded machine, the reversed comparison on <code>dropLabel</code>
+  expressions seems to propagate worse on dense rows; this is worth checking on an idle
+  machine.</li>
+  <li><b>Memory.</b> Nei uses the most memory on dense and regular instances (N12_d8: 14.5 MB
+  against 4.4 MB for OptRevLexAdj; N10_d8: 9.8 MB against 2.5 MB) and the least on the tree
+  sequences.</li>
 </ol>
-<div class="callout"><b>Summary.</b> With its current order, Nei is an OptLex model: against
-OptLexAdj it only pays off on the largest sparse instances, and OptRevLexAdj is faster than both
-on most of the set. In the previous run, Nei with the OptRevLex order of Adj was the fastest
-configuration on sparse sequences. These are single runs: differences under about 15 % are
-within run-to-run noise.</div>
+<div class="callout"><b>Summary.</b> Nei and OptRevLexAdj now return the same solutions. Nei pays
+off on sparse sequences and loses heavily as the density grows. These are single runs on a loaded
+machine: differences under about 15 % are within noise, and the times should be confirmed on an
+idle machine.</div>
 </section>
 </main>
 

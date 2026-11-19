@@ -61,6 +61,8 @@ public class CpModels {
         IloCP cp = new IloCP();
         IloIntVar[][] M = buildRevLexNeighborsModel(cp, deg);
         addOptRevLexNeiDir(cp, M, deg);
+        // addOptRevLexNeiSlots(cp, M, deg);
+        // addOptRevLexNeiSlotsLex(cp, M, deg);
         if (connectivity) addLargestNeighborAbove(cp, M, deg);
         return solve(cp, M, true, title);
     }
@@ -151,44 +153,54 @@ public class CpModels {
     private static void addOptRevLex(IloCP cp, IloIntExpr[][] A, int[] deg) throws IloException {
         int n = deg.length;
         if (n < 3) return;
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < n-1; i++) {
             for (int j = i + 1; j < n; j++) {
-                if (deg[i] != deg[j]) continue;
-                cp.add(cp.lexicographic(reverse(without(A[i], i, j)), reverse(without(A[j], i, j))));
+              if (deg[i] != deg[i+1]) continue;
+                cp.add(cp.lexicographic(reverse(without(A[i], i, i+1)), reverse(without(A[i+1], i, i+1))));
             }
         }
     }
 
     /**
-     * Neighbors, OptRevLex on the rows as stored ({@code 2 5 0 0}). Rows of equal degree
-     * increase from top to bottom: for every pair i &lt; j with deg[i] = deg[j], row i ≤lex row j,
-     * compared slot by slot from the first slot. If i and j are adjacent, the slot holding j+1
-     * is deleted from row i and the slot holding i+1 from row j before comparing: the two rows
-     * are compared one slot shorter, no 0 is added.
+     * Neighbors, OptRevLex: for every pair i &lt; j with deg[i] = deg[j] = d, the labels i+1 and
+     * j+1 are removed from both rows, and the neighbor slots that remain are compared slot by
+     * slot from the last neighbor slot down to the first (largest neighbor first):
      * <pre>
-     *   i, j adjacent:      M[i] without j+1  ≤lex  M[j] without i+1      (D-1 slots)
-     *   i, j not adjacent:  M[i]              ≤lex  M[j]                  (D slots)
+     *   i, j adjacent:      reverse(M[i][0..d-1] without j+1)  ≤lex  reverse(M[j][0..d-1] without i+1)   (d-1 slots)
+     *   i, j not adjacent:  reverse(M[i][0..d-1])              ≤lex  reverse(M[j][0..d-1])               (d slots)
      * </pre>
-     * The zero slots are in the same places in both rows (equal degrees), so they never
-     * decide. Vertex 1 gets the smallest neighbors (N6_d3 prism: {@code 1: 2 3 4}).
-     * Checked by brute force on all graphic sequences with n ≤ 6: no graph is lost.
+     * Row i never holds i+1 and row j never holds j+1, so only j+1 (in row i) and i+1 (in row j)
+     * can actually be removed, and only when i and j are adjacent. The zero slots d..D-1 are
+     * left out. Both rows keep the same number of neighbors, so comparing them largest first is
+     * the Adj OptRevLex order on rows i and j without columns i and j.
+     * <pre>
+     *   1: 2 3 4  2: 1 5 6  3: 1 5 6  4: 1 5 6  5: 2 3 4  6: 2 3 4    rejected: rows 4, 5 give 6 1 &gt; 3 2
+     *   1: 2 3 4  2: 1 3 5  3: 1 2 6  4: 1 5 6  5: 2 4 6  6: 3 4 5    accepted
+     * </pre>
      */
     private static void addOptRevLexNeiDir(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         int n = deg.length;
         for (int i = 0; i < n; i++) {
             for (int j = i + 1; j < n; j++) {
-                if (deg[i] != deg[j] || deg[i] == 0) continue;
+                int d = deg[i];
+                if (d != deg[j] || d == 0) continue;
+                IloIntExpr[] rowI = neighborSlots(M[i], d), rowJ = neighborSlots(M[j], d);
                 IloConstraint adjacent = cp.eq(cp.count(M[i], j + 1), 1);
-                cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(M[i], M[j])));
-                if (M[i].length > 1) {   // with one slot, deleting leaves nothing to compare
-                    cp.add(cp.ifThen(adjacent, cp.lexicographic(dropLabel(cp, M[i], j + 1),
-                                                                dropLabel(cp, M[j], i + 1))));
+                cp.add(cp.ifThen(cp.not(adjacent), cp.lexicographic(reverse(rowI), reverse(rowJ))));
+                if (d > 1) {   // with one neighbor, removing it leaves nothing to compare
+                    cp.add(cp.ifThen(adjacent, cp.lexicographic(reverse(dropLabel(cp, rowI, j + 1)),
+                                                                reverse(dropLabel(cp, rowJ, i + 1)))));
                 }
             }
         }
     }
 
-
+    /** The first d slots of a neighbor row: its neighbors, without the zero slots. */
+    private static IloIntExpr[] neighborSlots(IloIntVar[] row, int d) {
+        IloIntExpr[] out = new IloIntExpr[d];
+        System.arraycopy(row, 0, out, 0, d);
+        return out;
+    }
 
     /**
      * The row with the slot p holding {@code label} deleted: D-1 slots, no 0 added. Only used
@@ -209,6 +221,78 @@ public class CpModels {
             atOrAfter = cp.sum(atOrAfter, cp.eq(row[k], label));
             out[k] = cp.sum(row[k], cp.prod(atOrAfter, cp.diff(row[k + 1], row[k])));
         }
+        return out;
+    }
+
+
+
+
+    /**
+     * Neighbors, OptRevLex, slot par slot. Pour chaque paire i < j de même degré d :
+     * C_i = reverse(ligne i sans j+1), C_j = reverse(ligne j sans i+1), puis
+     *   (C_i[0..k-1] = C_j[0..k-1])  ⇒  C_i[k] ≤ C_j[k]      pour k = 0 .. d-1
+     * Même ensemble de solutions que addOptRevLexNeiDir.
+     */
+    private static void addOptRevLexNeiSlots(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        int n = deg.length;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                int d = deg[i];
+                if (d != deg[j] || d == 0) continue;
+                IloIntExpr[] rowI = neighborSlots(M[i], d), rowJ = neighborSlots(M[j], d);
+                IloIntExpr adj = cp.count(rowI, j + 1);
+                // Les deux lignes réduites de la paire (i, j), d slots chacune
+                IloIntExpr[] Ci = reverse(dropOrKeep(cp, rowI, j + 1, adj));
+                IloIntExpr[] Cj = reverse(dropOrKeep(cp, rowJ, i + 1, adj));
+
+                IloConstraint eqSoFar = null;                 // null = vrai (préfixe vide)
+                for (int k = 0; k < d; k++) {
+                    IloConstraint le = cp.le(Ci[k], Cj[k]);
+                    cp.add(eqSoFar == null ? le : cp.ifThen(eqSoFar, le));
+                    if (k < d - 1) {
+                        IloConstraint eqK = cp.eq(Ci[k], Cj[k]);
+                        eqSoFar = (eqSoFar == null) ? eqK : cp.and(eqSoFar, eqK);
+                    }
+                }
+            }
+        }
+    }
+    /**
+     * Comme {@link #addOptRevLexNeiSlots}, mais la chaîne slot par slot est remplacée par la
+     * contrainte globale : C_i ≤lex C_j. Même ensemble de solutions que addOptRevLexNeiDir.
+     */
+    private static void addOptRevLexNeiSlotsLex(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
+        int n = deg.length;
+        for (int i = 0; i < n; i++) {
+            for (int j = i + 1; j < n; j++) {
+                int d = deg[i];
+                if (d != deg[j] || d == 0) continue;
+                IloIntExpr[] rowI = neighborSlots(M[i], d), rowJ = neighborSlots(M[j], d);
+                IloIntExpr adj = cp.count(rowI, j + 1);
+                cp.add(cp.lexicographic(reverse(dropOrKeep(cp, rowI, j + 1, adj)),
+                                        reverse(dropOrKeep(cp, rowJ, i + 1, adj))));
+            }
+        }
+    }
+
+    /**
+     * Ligne réduite d'un sommet pour la paire (i, j), toujours d slots :
+     *   adj = 0 : la ligne inchangée                       2 5 7 → 2 5 7
+     *   adj = 1 : la ligne sans label, puis un 0           2 5 7 sans 5 → 2 7 0
+     * Après reverse, le 0 arrive en tête (0 7 2) ; il vaut 0 dans les deux lignes de la
+     * paire, donc il ne départage jamais : la comparaison porte sur les d-1 vrais voisins.
+     * Préconditions : ligne strictement croissante ; label présent dans la ligne ⇔ adj = 1.
+     */
+    private static IloIntExpr[] dropOrKeep(IloCP cp, IloIntExpr[] row, int label, IloIntExpr adj)
+            throws IloException {
+        int d = row.length;
+        IloIntExpr[] out = new IloIntExpr[d];
+        IloIntExpr atOrAfter = cp.constant(0);              // [k ≥ p] ; reste 0 si label absent
+        for (int k = 0; k < d - 1; k++) {
+            atOrAfter = cp.sum(atOrAfter, cp.eq(row[k], label));
+            out[k] = cp.sum(row[k], cp.prod(atOrAfter, cp.diff(row[k + 1], row[k])));
+        }
+        out[d - 1] = cp.prod(cp.diff(1, adj), row[d - 1]); // dernier slot, ou 0 si adjacents
         return out;
     }
 
@@ -233,8 +317,7 @@ public class CpModels {
     /**
      * Nei ({@code 2 5 0 0}): the largest neighbor of vertex i, in the last neighbor slot
      * deg[i]-1, is above i. Posted for every row except the last. Like the Adj upper
-     * off-diagonal, correct for regular sequences only; with the increasing Nei row order it
-     * also loses some regular graphs (e.g. K3,3 for N6_d3).
+     * off-diagonal ("vertex i has a neighbor above i"), correct for regular sequences only.
      */
     private static void addLargestNeighborAbove(IloCP cp, IloIntVar[][] M, int[] deg) throws IloException {
         for (int i = 0; i < M.length - 1; i++) {

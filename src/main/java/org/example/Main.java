@@ -29,18 +29,18 @@ public class Main {
      */
     private static final int[][] DEFAULT_SEQUENCES = {
             //{2, 2, 3, 3},   // diamond (K4 minus an edge)
-            {1, 2, 2, 3},   // paw (your shared Lex / RevLex sample)
+            //{1, 2, 2, 3},   // paw (your shared Lex / RevLex sample)
             // 0. warm-up (JIT + CP Optimizer start-up; ignore this row)
-             regular(6, 3),
+            regular(12, 5),//regular(12, 3),regular(12, 6),
             // 1. cubic graphs
-           /* regular(8, 3), regular(10, 3), regular(12, 3), regular(14, 3),
+             /*regular(8, 3), regular(10, 3), regular(12, 3),// regular(14, 3),
             // 2. quartic graphs
-            regular(9, 4), regular(10, 4), regular(11, 4), regular(12, 4),
+            regular(9, 4), regular(10, 4), regular(11, 4), //regular(12, 4),
             // 3. 2-regular graphs (unions of cycles)
-            regular(10, 2), regular(12, 2), regular(15, 2),
+            regular(10, 2), regular(12, 2), //regular(15, 2),
             // 4. complement pairs: d-regular vs (n-1-d)-regular, same graphs, different density
             //    (partners N10_d3, N10_d4, N12_d3 are in families 1 and 2)
-            regular(10, 6), regular(10, 5), regular(12, 8),
+            regular(10, 6), //regular(10, 5), //regular(12, 8),
             // 5. tree degree sequences (sum = 2n-2)
             {1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 4},
             {1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4},
@@ -68,7 +68,7 @@ public class Main {
     private static final boolean CONNECTIVITY = false;
 
     /** true = print every graph found (slower, and included in the time). */
-    private static final boolean PRINT_SOLUTIONS = true;
+    private static final boolean PRINT_SOLUTIONS = false;
 
     /** A model of {@link CpModels}: solves one degree sequence, printing under title if not null. */
     private interface Model {
@@ -89,7 +89,7 @@ public class Main {
                     new Column("OptRevLexNeiDirCon", (d, t) -> CpModels.optRevLexNeiDir(d, true, t)));
         }
         return List.of(
-                new Column("OptLexAdj",       CpModels::optLexAdj),
+              //  new Column("OptLexAdj",       CpModels::optLexAdj),
                 new Column("OptRevLexAdj",    (d, t) -> CpModels.optRevLexAdj(d, false, t)),
                 new Column("OptRevLexNeiDir", (d, t) -> CpModels.optRevLexNeiDir(d, false, t)));
     }
